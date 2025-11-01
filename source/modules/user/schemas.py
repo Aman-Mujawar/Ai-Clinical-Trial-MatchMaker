@@ -1,21 +1,26 @@
+# schemas.py - Simplified version
+from pydantic import BaseModel, EmailStr
 
-from typing import Any, Dict, List, Optional
-from uuid import UUID
+class AddUserRequest(BaseModel):
+    name: str
+    email: EmailStr
 
-from fastapi.responses import StreamingResponse
-from pydantic import EmailStr, Field
+class AddUserResponse(BaseModel):
+    message: str
+    email: str
 
-from base.schemas import (
-    AppBaseModel,
-    BaseApiResponse,
-    BooleanApiResponse,
-    PaginatedListData,
-)
+class UpdatePasswordRequest(BaseModel):
+    email: EmailStr
+    new_password: str
 
-class AddUserRequest(AppBaseModel):
-    name: str = Field(..., description="User name")
-    email: EmailStr = Field(..., description="User email")
-    phone_cc: str = Field(..., description="User phone country code")
-    phone_number: str = Field(..., description="User phone number")
-    address: str = Field(..., description="User's address")
-    managers: List[str] = Field(..., description="Managers of the user")
+class UpdatePasswordResponse(BaseModel):
+    message: str
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class LoginResponse(BaseModel):
+    message: str
+    user_id: str
+    name: str

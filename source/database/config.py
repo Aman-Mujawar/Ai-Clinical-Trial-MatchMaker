@@ -6,7 +6,7 @@ class DatabaseConfig(BaseSettings):
     Database configuration
     """
 
-    # APP_DB_URL: str = "postgresql+psycopg://postgres:postgres@localhost/agri"
+    APP_DB_URL: str = "postgresql://postgres:12345@localhost:5432/clinical_matchmaking"
     """Database URL / connection string"""
 
     COMMON_DB_URL: str = ""
