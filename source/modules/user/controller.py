@@ -1,69 +1,69 @@
-# controller.py - Simplified version
-import uuid
-from sqlalchemy.orm import Session as DbSession
-from sqlalchemy import select
+# controller.py
+from sqlalchemy.orm import Session
 from passlib.context import CryptContext
-from schemas import AddUserRequest, AddUserResponse, UpdatePasswordResponse, UpdatePasswordRequest, LoginRequest, LoginResponse
-from models import User
+from fastapi import HTTPException, status
+from .models import User
+from .schemas import SignupRequest, SignupResponse, LoginRequest, LoginResponse
+from datetime import datetime, timezone
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-def add_user(db: DbSession, request: AddUserRequest) -> AddUserResponse:
-    # Check if user already exists
-    stmt = select(User).where(User.email == request.email)
-    existing_user = db.execute(stmt).scalar_one_or_none()
-    
-    if existing_user:
-        raise ValueError("User with this email already exists")
-    
-    # Create new user with empty password
+def signup_user(db: Session, request: SignupRequest) -> SignupResponse:
+    # Check if user exists
+    user = db.query(User).filter(User.email == request.email).first()
+    if user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User with this email already exists"
+        )
+
+    # Hash password safely (truncate to 72 bytes)
+    password_bytes = request.password.encode("utf-8")[:72]
+    hashed_password = pwd_context.hash(password_bytes)
+
     new_user = User(
-        id=uuid.uuid4(),
-        name=request.name,
         email=request.email,
-        password=None  # Initially empty
+        password_hash=hashed_password,
+        name=request.name,
+        role=request.role,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc)
     )
-    
+
     db.add(new_user)
     db.commit()
-    
-    return AddUserResponse(
-        message="User created successfully. Please set your password.",
-        email=request.email
+    db.refresh(new_user)
+
+    return SignupResponse(
+        message="User created successfully",
+        email=new_user.email,
+        user_id=str(new_user.id)
     )
 
-def update_password(db: DbSession, request: UpdatePasswordRequest) -> UpdatePasswordResponse:
-    # Find user by email
-    stmt = select(User).where(User.email == request.email)
-    user = db.execute(stmt).scalar_one_or_none()
-    
-    if not user:
-        raise ValueError("User not found")
-    
-    # Hash and update password
-    hashed_password = pwd_context.hash(request.new_password)
-    user.password = hashed_password
-    db.commit()
-    
-    return UpdatePasswordResponse(message="Password updated successfully")
 
-def login_user(db: DbSession, request: LoginRequest) -> LoginResponse:
-    # Find user by email
-    stmt = select(User).where(User.email == request.email)
-    user = db.execute(stmt).scalar_one_or_none()
-    
-    if not user:
-        raise ValueError("Invalid email or password")
-    
-    if user.password is None:
-        raise ValueError("Please set your password first")
-    
-    # Verify password
-    if not pwd_context.verify(request.password, user.password):
-        raise ValueError("Invalid email or password")
-    
+def login_user(db: Session, request: LoginRequest) -> LoginResponse:
+    user = db.query(User).filter(User.email == request.email).first()
+    if not user or not user.password_hash:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password"
+        )
+
+    # Verify password safely
+    password_bytes = request.password.encode("utf-8")[:72]
+    if not pwd_context.verify(password_bytes, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password"
+        )
+
+    # Update last login timestamp
+    user.last_login_at = datetime.now(timezone.utc)
+    db.commit()
+
     return LoginResponse(
         message="Login successful",
         user_id=str(user.id),
-        name=user.name
+        name=user.name,
+        role=user.role
     )

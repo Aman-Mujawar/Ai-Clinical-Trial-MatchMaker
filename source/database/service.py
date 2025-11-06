@@ -1,8 +1,8 @@
 from contextlib import contextmanager
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from database.config import DatabaseConfig
-from logger import service as logger_service
+from source.database.config import DatabaseConfig
+from source.logger import service as logger_service
 
 log = logger_service.get_logger(__name__)
 

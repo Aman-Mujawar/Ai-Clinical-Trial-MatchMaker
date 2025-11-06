@@ -1,45 +1,53 @@
-# env.py - Updated with User model
+import os
+import sys
+from pathlib import Path
 from logging.config import fileConfig
-
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
+from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
+# ---------------------------------------------------------------------
+# Ensure Python can find the "source" package no matter where Alembic runs
+# ---------------------------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent.parent  # project root (Ai-Clinical-Trial-MatchMaker)
+sys.path.insert(0, str(BASE_DIR))  # Add project root to sys.path
+
+# ---------------------------------------------------------------------
+# Import DB config and models
+# ---------------------------------------------------------------------
+from source.database.config import DatabaseConfig
+from source.database.models import BaseDbModel
+from source.modules.user.models import User
+
+# ---------------------------------------------------------------------
+# Alembic configuration setup
+# ---------------------------------------------------------------------
 config = context.config
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
+# Load DB URL dynamically from .env or fallback to default from DatabaseConfig
+db_config = DatabaseConfig()
+database_url = db_config.database_url
+
+if database_url:
+    config.set_main_option("sqlalchemy.url", database_url)
+
+# ---------------------------------------------------------------------
+# Logging setup
+# ---------------------------------------------------------------------
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# IMPORT YOUR USER MODEL HERE
-from source.database.models import BaseDbModel
-from source.modules.user.models import User  # This imports your User model
-
-# Set target_metadata to BaseDbModel's metadata
+# ---------------------------------------------------------------------
+# Target metadata for autogenerate support
+# ---------------------------------------------------------------------
 target_metadata = BaseDbModel.metadata
 
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
 
+# ---------------------------------------------------------------------
+# Offline mode migrations
+# ---------------------------------------------------------------------
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
-
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well. By skipping the Engine creation
-    we don't even need a DBAPI to be available.
-
-    Calls to context.execute() here emit the given string to the
-    script output.
-
-    """
-    url = config.get_main_option("sqlalchemy.url")
+    """Run migrations in 'offline' mode."""
+    url = config.get_main_option("sqlalchemy.url", database_url)
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -50,13 +58,12 @@ def run_migrations_offline() -> None:
     with context.begin_transaction():
         context.run_migrations()
 
+
+# ---------------------------------------------------------------------
+# Online mode migrations
+# ---------------------------------------------------------------------
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
-
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
-
-    """
+    """Run migrations in 'online' mode."""
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
@@ -64,13 +71,15 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()
 
+
+# ---------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------
 if context.is_offline_mode():
     run_migrations_offline()
 else:

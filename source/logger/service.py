@@ -4,7 +4,7 @@ Logger utility module
 
 import logging
 
-from logger.config import LoggerConfig
+from source.logger.config import LoggerConfig
 
 logger_settings = LoggerConfig()
 
