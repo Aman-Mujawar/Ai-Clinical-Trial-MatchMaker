@@ -1,20 +1,18 @@
-# schemas.py - Simplified version
+# schemas.py
 from pydantic import BaseModel, EmailStr
+from typing import Optional
+from source.modules.user.models import UserRole
 
-class AddUserRequest(BaseModel):
-    name: str
+class SignupRequest(BaseModel):
     email: EmailStr
+    password: str
+    name: Optional[str]
+    role: Optional[UserRole] = None
 
-class AddUserResponse(BaseModel):
+class SignupResponse(BaseModel):
     message: str
     email: str
-
-class UpdatePasswordRequest(BaseModel):
-    email: EmailStr
-    new_password: str
-
-class UpdatePasswordResponse(BaseModel):
-    message: str
+    user_id: str
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -23,4 +21,5 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     message: str
     user_id: str
-    name: str
+    name: Optional[str]
+    role: Optional[UserRole]
