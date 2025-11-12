@@ -1,57 +1,81 @@
-# controller.py
+# source/modules/user/controller.py
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 from fastapi import HTTPException, status
-from .models import User
-from .schemas import SignupRequest, SignupResponse, LoginRequest, LoginResponse
 from datetime import datetime, timezone
+import uuid
 
+from .models import Users
+from .schemas import SignupRequest, SignupResponse, LoginRequest, LoginResponse
+from .auth import create_access_token
+
+# Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+# System UUID for created_by / modified_by
+SYSTEM_UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
+
+
 def signup_user(db: Session, request: SignupRequest) -> SignupResponse:
-    # Check if user exists
-    user = db.query(User).filter(User.email == request.email).first()
-    if user:
+    """
+    Sign up a new user and return a JWT token immediately.
+    """
+    # Check for existing user
+    existing_user = db.query(Users).filter(Users.email == request.email).first()
+    if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User with this email already exists"
         )
 
-    # Hash password safely (truncate to 72 bytes)
-    password_bytes = request.password.encode("utf-8")[:72]
-    hashed_password = pwd_context.hash(password_bytes)
+    # Hash password safely (truncate to 72 bytes for bcrypt)
+    hashed_password = pwd_context.hash(request.password.encode("utf-8")[:72])
 
-    new_user = User(
+    # Create new user instance
+    new_user = Users(
         email=request.email,
         password_hash=hashed_password,
-        name=request.name,
+        first_name=request.first_name,
+        last_name=request.last_name,
         role=request.role,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc)
+        created_by=SYSTEM_UUID,
+        modified_by=SYSTEM_UUID,
+        is_email_verified=False,
+        is_onboarded=False,
+        terms_accepted=False
     )
 
+    # Save user
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
 
+    # Generate JWT token immediately after signup
+    access_token = create_access_token(user_id=str(new_user.id))
+
     return SignupResponse(
         message="User created successfully",
         email=new_user.email,
-        user_id=str(new_user.id)
+        user_id=str(new_user.id),
+        first_name=new_user.first_name,
+        last_name=new_user.last_name,
+        access_token=access_token
     )
 
 
 def login_user(db: Session, request: LoginRequest) -> LoginResponse:
-    user = db.query(User).filter(User.email == request.email).first()
+    """
+    Login a user and return a JWT token.
+    """
+    user = db.query(Users).filter(Users.email == request.email).first()
     if not user or not user.password_hash:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
         )
 
-    # Verify password safely
-    password_bytes = request.password.encode("utf-8")[:72]
-    if not pwd_context.verify(password_bytes, user.password_hash):
+    # Verify password
+    if not pwd_context.verify(request.password.encode("utf-8")[:72], user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
@@ -61,9 +85,14 @@ def login_user(db: Session, request: LoginRequest) -> LoginResponse:
     user.last_login_at = datetime.now(timezone.utc)
     db.commit()
 
+    # Generate JWT token
+    access_token = create_access_token(user_id=str(user.id))
+
     return LoginResponse(
         message="Login successful",
         user_id=str(user.id),
-        name=user.name,
-        role=user.role
+        first_name=user.first_name,
+        last_name=user.last_name,
+        role=user.role,
+        access_token=access_token
     )
