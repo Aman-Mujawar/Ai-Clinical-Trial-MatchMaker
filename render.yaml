@@ -2,19 +2,21 @@ services:
   - type: web
     name: ai-clinical-trial-api
     env: python
-    region: oregon  # you can keep or change depending on your location
+    region: oregon  # keep this unless you want to host closer to your users
+    plan: free
+
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
+
     startCommand: |
       alembic upgrade head && uvicorn source.main:app --host 0.0.0.0 --port 10000
-    plan: free  # you can change to 'starter' or 'standard' for production
 
     envVars:
       - key: APP_DB_URL
-        value: postgresql+psycopg2://neondb_owner:npg_vAI5WPi4MjUw@ep-crimson-base-afv02jvq.c-2.us-west-2.aws.neon.tech/neondb?sslmode=require
+        sync: false  # 🚨 do NOT commit the DB URL; we’ll add it in Render dashboard instead
       - key: COMMON_DB_URL
-        value: ""  # Optional, can be left empty
+        value: ""
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: PORT
