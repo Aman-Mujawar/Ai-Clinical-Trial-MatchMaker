@@ -20,9 +20,10 @@ itsdangerous==2.2.0
 
 # --- AI & NLP Libraries ---
 openai==1.50.2
-transformers==4.46.1
-sentence-transformers==3.2.1
-torch==2.5.1
+# Lighter alternatives - uncomment if you need full ML stack
+# transformers==4.46.1
+# sentence-transformers==3.2.1
+# torch==2.5.1
 scikit-learn==1.5.2
 nltk==3.9.1
 numpy==2.1.3
