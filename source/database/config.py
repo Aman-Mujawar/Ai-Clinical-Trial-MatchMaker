@@ -8,7 +8,7 @@ class DatabaseConfig(BaseSettings):
     Loads from .env or system environment variables.
     """
 
-    DATABASE_URL: str | None = None  # ✅ Matches your .env variable
+    APP_DB_URL: str | None = None  # ✅ Changed from DATABASE_URL to APP_DB_URL
 
     class Config:
         env_file = ".env"
@@ -17,9 +17,9 @@ class DatabaseConfig(BaseSettings):
     @property
     def database_url(self) -> str:
         """Return the effective database connection string."""
-        if not self.DATABASE_URL:
-            raise ValueError("DATABASE_URL is not set in environment.")
-        return self.DATABASE_URL
+        if not self.APP_DB_URL:
+            raise ValueError("APP_DB_URL is not set in environment.")
+        return self.APP_DB_URL
 
 
 # ✅ Instance
