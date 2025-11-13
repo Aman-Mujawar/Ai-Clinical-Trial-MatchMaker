@@ -4,12 +4,13 @@ from pathlib import Path
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
+from configparser import ConfigParser
 
 # ---------------------------------------------------------------------
 # Ensure Python can find the "source" package no matter where Alembic runs
 # ---------------------------------------------------------------------
-BASE_DIR = Path(__file__).resolve().parent.parent  # project root
-sys.path.insert(0, str(BASE_DIR))  # Add project root to sys.path
+BASE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BASE_DIR))
 
 # ---------------------------------------------------------------------
 # Import DB config and models
@@ -21,17 +22,23 @@ from source.modules.PatientProfile.model import PatientProfile
 from source.modules.symptoms.model import SymptomEntry
 from source.modules.matching.model import TrialMatch
 from source.modules.trails.model import Trial
-from source.modules.chatbot.model import ChatbotMessage
-from source.modules.chatbot.model import AIChatSession
+from source.modules.chatbot.model import ChatbotMessage, AIChatSession
+
 # ---------------------------------------------------------------------
 # Alembic configuration setup
 # ---------------------------------------------------------------------
 config = context.config
 
-# Load DB URL dynamically from .env or fallback to default from DatabaseConfig
+# ✅ Rebuild the parser to completely disable '%' interpolation
+raw_cfg = ConfigParser(interpolation=None)
+raw_cfg.read(config.config_file_name)
+config.file_config = raw_cfg
+
+# Load DB URL dynamically
 db_config = DatabaseConfig()
 database_url = db_config.database_url
 
+# ✅ Set DB URL directly (no interpolation issues now)
 if database_url:
     config.set_main_option("sqlalchemy.url", database_url)
 
@@ -42,12 +49,12 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # ---------------------------------------------------------------------
-# Target metadata for autogenerate support
+# Target metadata
 # ---------------------------------------------------------------------
 target_metadata = BaseDbModel.metadata
 
 # ---------------------------------------------------------------------
-# Offline mode migrations
+# Offline migrations
 # ---------------------------------------------------------------------
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url", database_url)
@@ -62,7 +69,7 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 # ---------------------------------------------------------------------
-# Online mode migrations
+# Online migrations
 # ---------------------------------------------------------------------
 def run_migrations_online() -> None:
     connectable = engine_from_config(

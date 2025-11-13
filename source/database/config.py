@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from typing import ClassVar
 
 
 class DatabaseConfig(BaseSettings):
@@ -6,7 +7,11 @@ class DatabaseConfig(BaseSettings):
     Database configuration for the Clinical Trial Matchmaker app.
     """
 
-    APP_DB_URL: str = "postgresql+psycopg2://postgres:1234@localhost:5432/clinical_db"
+    APP_DB_URL: ClassVar[str] = (
+        "postgresql+psycopg2://neondb_owner:"
+        "npg_vAI5WPi4MjUw@ep-crimson-base-afv02jvq.c-2.us-west-2.aws.neon.tech/"
+        "neondb?sslmode=require&options=endpoint%3Dep-crimson-base-afv02jvq"
+    )
     """Primary database connection URL."""
 
     COMMON_DB_URL: str | None = None
@@ -18,12 +23,8 @@ class DatabaseConfig(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        """
-        Returns the effective database connection string.
-        Defaults to APP_DB_URL if COMMON_DB_URL is not provided.
-        """
+        """Return Neon DB URL, preferring COMMON_DB_URL if provided."""
         return self.COMMON_DB_URL or self.APP_DB_URL
 
 
-#  Instantiate config for global import
 db_config = DatabaseConfig()

@@ -1,0 +1,42 @@
+# --- Core Frameworks ---
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+
+# --- Database & ORM ---
+SQLAlchemy==2.0.32
+alembic==1.13.2
+psycopg2-binary==2.9.9
+asyncpg==0.29.0
+
+# --- Environment & Config ---
+python-dotenv==1.0.1
+pydantic==2.8.2
+pydantic-settings==2.2.1
+
+# --- Authentication & Security ---
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.9
+itsdangerous==2.2.0
+
+# --- AI & NLP Libraries ---
+openai==1.50.2
+transformers==4.46.1
+sentence-transformers==3.2.1
+torch==2.5.1
+scikit-learn==1.5.2
+nltk==3.9.1
+numpy==2.1.3
+pandas==2.2.3
+tqdm==4.66.5
+
+# --- Utilities ---
+requests==2.32.3
+typing-extensions==4.12.2
+loguru==0.7.2
+
+# --- Optional Web/Validation Tools ---
+httpx==0.27.2
+starlette==0.37.2
+
+# --- Render Deployment Helpers ---
+gunicorn==23.0.0
