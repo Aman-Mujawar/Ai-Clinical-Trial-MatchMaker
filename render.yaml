@@ -2,19 +2,17 @@ services:
   - type: web
     name: ai-clinical-trial-api
     env: python
-    region: oregon  # keep this unless you want to host closer to your users
-    plan: free
-
+    region: oregon
+    pythonVersion: 3.11  # 👈 add this line
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
-
     startCommand: |
       alembic upgrade head && uvicorn source.main:app --host 0.0.0.0 --port 10000
-
+    plan: free
     envVars:
       - key: APP_DB_URL
-        sync: false  # 🚨 do NOT commit the DB URL; we’ll add it in Render dashboard instead
+        sync: false
       - key: COMMON_DB_URL
         value: ""
       - key: PYTHONUNBUFFERED
