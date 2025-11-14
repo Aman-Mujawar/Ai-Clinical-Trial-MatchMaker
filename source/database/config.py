@@ -8,7 +8,8 @@ class DatabaseConfig(BaseSettings):
     Loads from .env or system environment variables.
     """
 
-    APP_DB_URL: str | None = None  # ✅ Changed from DATABASE_URL to APP_DB_URL
+    APP_DB_URL: str | None = None
+    COMMON_DB_URL: str | None = None  # ✅ Added this
 
     class Config:
         env_file = ".env"
@@ -20,6 +21,11 @@ class DatabaseConfig(BaseSettings):
         if not self.APP_DB_URL:
             raise ValueError("APP_DB_URL is not set in environment.")
         return self.APP_DB_URL
+    
+    @property
+    def common_database_url(self) -> str | None:
+        """Return the common database connection string if set."""
+        return self.COMMON_DB_URL
 
 
 # ✅ Instance
