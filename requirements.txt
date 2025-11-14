@@ -15,7 +15,8 @@ pydantic-settings==2.2.1
 email-validator==2.1.1
 
 # --- Authentication & Security ---
-passlib[bcrypt]==1.7.4
+bcrypt==4.1.3             # ✅ REQUIRED to fix passlib bcrypt backend
+passlib==1.7.4             # ⬅ removed [bcrypt] extra (buggy on Render)
 python-jose[cryptography]==3.3.0
 python-multipart==0.0.9
 itsdangerous==2.2.0
@@ -40,5 +41,5 @@ loguru==0.7.2
 httpx==0.27.2
 starlette==0.37.2
 
-# --- Render Deployment Helpers ---
+# --- Render Deployment ---
 gunicorn==23.0.0
