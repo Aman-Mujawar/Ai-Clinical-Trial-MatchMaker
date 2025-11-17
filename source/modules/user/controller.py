@@ -7,7 +7,7 @@ import uuid
 from .models import Users
 from .schemas import SignupRequest, SignupResponse, LoginRequest, LoginResponse
 from .auth import create_access_token
-from .password_utils import hash_password, verify_password   # ← NEW
+from .password_utils import hash_password, verify_password  # ✅ updated import
 
 # System UUID for created_by / modified_by
 SYSTEM_UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
@@ -25,7 +25,7 @@ def signup_user(db: Session, request: SignupRequest) -> SignupResponse:
             detail="User with this email already exists"
         )
 
-    # Hash password using Argon2
+    # Hash password using password_utils
     hashed_password = hash_password(request.password)
 
     # Create new user instance
@@ -47,7 +47,7 @@ def signup_user(db: Session, request: SignupRequest) -> SignupResponse:
     db.commit()
     db.refresh(new_user)
 
-    # Generate JWT token
+    # Generate JWT token immediately after signup
     access_token = create_access_token(user_id=str(new_user.id))
 
     return SignupResponse(
@@ -71,7 +71,7 @@ def login_user(db: Session, request: LoginRequest) -> LoginResponse:
             detail="Invalid email or password"
         )
 
-    # Verify password using Argon2
+    # ✅ Verify password using password_utils
     if not verify_password(request.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

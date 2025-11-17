@@ -1,16 +1,17 @@
 # source/modules/user/password_utils.py
-from passlib.hash import argon2
+from passlib.context import CryptContext
 
+# ✅ Only bcrypt
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def hash_password(password: str) -> str:
     """
-    Hash password using Argon2 (recommended).
+    Hash password using bcrypt safely (truncate to 72 bytes for bcrypt)
     """
-    return argon2.hash(password)
-
+    return pwd_context.hash(password.encode("utf-8")[:72])
 
 def verify_password(password: str, hashed: str) -> bool:
     """
-    Verify password using Argon2.
+    Verify password using bcrypt
     """
-    return argon2.verify(password, hashed)
+    return pwd_context.verify(password.encode("utf-8")[:72], hashed)
