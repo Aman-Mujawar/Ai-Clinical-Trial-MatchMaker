@@ -6,17 +6,14 @@ services:
     plan: free
 
     buildCommand: |
-      pip install --upgrade pip
       pip install -r requirements.txt
 
-    preDeployCommand: alembic upgrade head
-
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
 
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: ENVIRONMENT
         value: "production"
-      - key: CORS_ORIGINS     # Prevent startup crash
+      - key: CORS_ORIGINS
         value: "*"
