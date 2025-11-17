@@ -1,4 +1,3 @@
-# controller.py
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from fastapi import HTTPException, status
@@ -12,13 +11,13 @@ from source.modules.getprofile.schemas import (
 )
 
 
-async def get_user_profile_details(db: AsyncSession, current_user: Users) -> FullProfileResponse:
+async def get_user_profile_details(db: AsyncSession, current_user_id: str) -> FullProfileResponse:
     """
     Fetch logged-in user's profile + patient profile details
     """
 
     # --- Query user ---
-    stmt = select(Users).where(Users.id == current_user.id)
+    stmt = select(Users).where(Users.id == current_user_id)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
@@ -29,11 +28,11 @@ async def get_user_profile_details(db: AsyncSession, current_user: Users) -> Ful
         )
 
     # --- Query patient profile ---
-    stmt = select(PatientProfile).where(PatientProfile.user_id == current_user.id)
+    stmt = select(PatientProfile).where(PatientProfile.user_id == current_user_id)
     result = await db.execute(stmt)
     profile = result.scalar_one_or_none()
 
-    # Build response
+    # Build user data
     user_data = UserResponse(
         id=str(user.id),
         email=user.email,
@@ -48,10 +47,8 @@ async def get_user_profile_details(db: AsyncSession, current_user: Users) -> Ful
         is_onboarded=user.is_onboarded
     )
 
-    if profile:
-        profile_data = PatientProfileResponse.from_orm(profile)
-    else:
-        profile_data = None
+    # Build patient profile data
+    profile_data = PatientProfileResponse.from_orm(profile) if profile else None
 
     return FullProfileResponse(
         user=user_data,
