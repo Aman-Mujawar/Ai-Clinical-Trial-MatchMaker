@@ -113,5 +113,6 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=int(os.environ.get("PORT", 8000)),
-        reload=True
+        reload=False,     # ❗ MUST BE FALSE FOR RENDER
+        workers=1         # ❗ REQUIRED ON FREE TIER
     )

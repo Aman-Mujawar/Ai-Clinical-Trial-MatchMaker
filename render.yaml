@@ -4,14 +4,19 @@ services:
     env: python
     region: oregon
     plan: free
+
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
+
     preDeployCommand: alembic upgrade head
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
+
     envVars:
-      # Do NOT include the DB URL in repo! Set it in Render dashboard instead.
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: ENVIRONMENT
         value: "production"
+      - key: CORS_ORIGINS     # Prevent startup crash
+        value: "*"
