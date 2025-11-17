@@ -1,29 +1,34 @@
 from contextlib import contextmanager
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from source.database.config import DatabaseConfig
+from source.database.config import db_config
 from source.logger import service as logger_service
 
 log = logger_service.get_logger(__name__)
 
-config = DatabaseConfig()
+# -------------------------
+# Create database engines
+# -------------------------
+# App DB engine
+engine = create_engine(db_config.database_url)
 
-# Create the database engines
-# app db engine
-engine = create_engine(config.APP_DB_URL)
-# common db engine
-common_db_url = config.COMMON_DB_URL
-if not common_db_url or len(common_db_url) == 0:
-    log.error("common_db_url is not set, using app_db_url")
-    common_db_url = config.APP_DB_URL
+# Common DB engine (optional, fallback to app DB)
+common_db_url = db_config.common_database_url
+if not common_db_url or common_db_url.strip() == "":
+    log.warning("COMMON_DB_URL is not set, using APP_DB_URL as fallback")
+    common_db_url = db_config.database_url
+
 engine_common = create_engine(common_db_url)
 
-# Configure session factories
+# -------------------------
+# Session factories
+# -------------------------
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 SessionCommon = sessionmaker(autocommit=False, autoflush=False, bind=engine_common)
 
-
+# -------------------------
 # Dependency for FastAPI
+# -------------------------
 def get_db():
     """
     Get a database session - App DB
@@ -32,7 +37,7 @@ def get_db():
     try:
         yield db
     except Exception as e:
-        log.error(f"get_db: Caught exception: {e}, rolling back")
+        log.error(f"get_db: Exception occurred, rolling back - {e}")
         db.rollback()
         raise e
     finally:
@@ -47,7 +52,7 @@ def get_common_db():
     try:
         yield db
     except Exception as e:
-        log.error(f"get_common_db: Caught exception: {e}, rolling back")
+        log.error(f"get_common_db: Exception occurred, rolling back - {e}")
         db.rollback()
         raise e
     finally:
