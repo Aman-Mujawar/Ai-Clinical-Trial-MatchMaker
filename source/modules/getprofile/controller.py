@@ -1,4 +1,6 @@
-from sqlalchemy.ext.asyncio import AsyncSession
+# controller.py
+
+from sqlalchemy.orm import Session
 from sqlalchemy import select
 from fastapi import HTTPException, status
 
@@ -11,14 +13,14 @@ from source.modules.getprofile.schemas import (
 )
 
 
-async def get_user_profile_details(db: AsyncSession, current_user_id: str) -> FullProfileResponse:
+def get_user_profile_details(db: Session, current_user_id: str) -> FullProfileResponse:
     """
     Fetch logged-in user's full profile (User + PatientProfile)
     """
 
     # --- Fetch User ---
     stmt = select(Users).where(Users.id == current_user_id)
-    result = await db.execute(stmt)
+    result = db.execute(stmt)
     user = result.scalar_one_or_none()
 
     if not user:
@@ -29,7 +31,7 @@ async def get_user_profile_details(db: AsyncSession, current_user_id: str) -> Fu
 
     # --- Fetch Patient Profile ---
     stmt = select(PatientProfile).where(PatientProfile.user_id == current_user_id)
-    result = await db.execute(stmt)
+    result = db.execute(stmt)
     profile = result.scalar_one_or_none()
 
     # ---- Build user data ----
@@ -79,7 +81,7 @@ async def get_user_profile_details(db: AsyncSession, current_user_id: str) -> Fu
             contact_preference=profile.contact_preference,
             consent_to_share=profile.consent_to_share,
 
-            location=profile.location
+            location=profile.location,
         )
 
     return FullProfileResponse(

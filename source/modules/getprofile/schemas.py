@@ -1,6 +1,6 @@
-from datetime import date, datetime
+from datetime import date
 from typing import Optional, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ----------------------------
@@ -16,26 +16,26 @@ class PatientProfileResponse(BaseModel):
     weight_kg: Optional[float] = None
     bmi: Optional[float] = None
 
-    diagnoses: Optional[Dict[str, Any]] = None
-    allergies: Optional[Dict[str, Any]] = None
-    medications: Optional[Dict[str, Any]] = None
-    vaccinations: Optional[Dict[str, Any]] = None
-    family_history: Optional[Dict[str, Any]] = None
+    diagnoses: Dict[str, Any] = Field(default_factory=dict)
+    allergies: Dict[str, Any] = Field(default_factory=dict)
+    medications: Dict[str, Any] = Field(default_factory=dict)
+    vaccinations: Dict[str, Any] = Field(default_factory=dict)
+    family_history: Dict[str, Any] = Field(default_factory=dict)
 
     smoking_status: Optional[str] = None
     alcohol_use: Optional[str] = None
     occupation: Optional[str] = None
 
-    insurance: Optional[Dict[str, Any]] = None
-    emergency_contact: Optional[Dict[str, Any]] = None
+    insurance: Dict[str, Any] = Field(default_factory=dict)
+    emergency_contact: Dict[str, Any] = Field(default_factory=dict)
 
     primary_provider_id: Optional[str] = None
-    prescreening: Optional[Dict[str, Any]] = None
+    prescreening: Dict[str, Any] = Field(default_factory=dict)
 
     contact_preference: Optional[str] = None
     consent_to_share: Optional[bool] = None
 
-    location: Optional[str] = None  # computed inside model
+    location: Optional[str] = None
 
     class Config:
         orm_mode = True
