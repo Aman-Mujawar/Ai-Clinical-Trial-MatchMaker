@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from typing import Optional, Dict, Any
-from pydantic import BaseModel, validator
+from pydantic import BaseModel
 
 
 # ----------------------------
@@ -8,7 +8,7 @@ from pydantic import BaseModel, validator
 # ----------------------------
 class PatientProfileResponse(BaseModel):
     date_of_birth: Optional[date] = None
-    age: Optional[int] = None  # Will be calculated automatically
+    age: Optional[int] = None
     gender: Optional[str] = None
     blood_group: Optional[str] = None
 
@@ -35,21 +35,10 @@ class PatientProfileResponse(BaseModel):
     contact_preference: Optional[str] = None
     consent_to_share: Optional[bool] = None
 
-    location: Optional[str] = None
+    location: Optional[str] = None  # computed inside model
 
     class Config:
         orm_mode = True
-
-    # ----------------------------
-    #   Validators
-    # ----------------------------
-    @validator("age", always=True)
-    def calculate_age(cls, v, values):
-        dob = values.get("date_of_birth")
-        if dob:
-            today = date.today()
-            return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-        return None
 
 
 # ----------------------------
@@ -58,15 +47,15 @@ class PatientProfileResponse(BaseModel):
 class UserResponse(BaseModel):
     id: str
     email: str
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    phone_number: Optional[str] = None
-    role: Optional[str] = None
-    status: Optional[str] = None
-    profile_photo_url: Optional[str] = None
-    bio: Optional[str] = None
-    location: Optional[str] = None
-    is_onboarded: Optional[bool] = None
+    first_name: Optional[str]
+    last_name: Optional[str]
+    phone_number: Optional[str]
+    role: Optional[str]
+    status: Optional[str]
+    profile_photo_url: Optional[str]
+    bio: Optional[str]
+    location: Optional[str]
+    is_onboarded: Optional[bool]
 
     class Config:
         orm_mode = True

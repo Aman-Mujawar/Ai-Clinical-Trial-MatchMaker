@@ -13,10 +13,10 @@ from source.modules.getprofile.schemas import (
 
 async def get_user_profile_details(db: AsyncSession, current_user_id: str) -> FullProfileResponse:
     """
-    Fetch logged-in user's profile + patient profile details
+    Fetch logged-in user's full profile (User + PatientProfile)
     """
 
-    # --- Query user ---
+    # --- Fetch User ---
     stmt = select(Users).where(Users.id == current_user_id)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
@@ -27,12 +27,12 @@ async def get_user_profile_details(db: AsyncSession, current_user_id: str) -> Fu
             detail="User not found"
         )
 
-    # --- Query patient profile ---
+    # --- Fetch Patient Profile ---
     stmt = select(PatientProfile).where(PatientProfile.user_id == current_user_id)
     result = await db.execute(stmt)
     profile = result.scalar_one_or_none()
 
-    # Build user data
+    # ---- Build user data ----
     user_data = UserResponse(
         id=str(user.id),
         email=user.email,
@@ -47,8 +47,40 @@ async def get_user_profile_details(db: AsyncSession, current_user_id: str) -> Fu
         is_onboarded=user.is_onboarded
     )
 
-    # Build patient profile data
-    profile_data = PatientProfileResponse.from_orm(profile) if profile else None
+    # ---- Build patient profile ----
+    profile_data = None
+    if profile:
+        profile_data = PatientProfileResponse(
+            date_of_birth=profile.date_of_birth,
+            age=profile.age,
+            gender=profile.gender,
+            blood_group=profile.blood_group,
+
+            height_cm=profile.height_cm,
+            weight_kg=profile.weight_kg,
+            bmi=profile.bmi,
+
+            diagnoses=profile.diagnoses or {},
+            allergies=profile.allergies or {},
+            medications=profile.medications or {},
+            vaccinations=profile.vaccinations or {},
+            family_history=profile.family_history or {},
+
+            smoking_status=profile.smoking_status,
+            alcohol_use=profile.alcohol_use,
+            occupation=profile.occupation,
+
+            insurance=profile.insurance or {},
+            emergency_contact=profile.emergency_contact or {},
+
+            primary_provider_id=str(profile.primary_provider_id) if profile.primary_provider_id else None,
+            prescreening=profile.prescreening or {},
+
+            contact_preference=profile.contact_preference,
+            consent_to_share=profile.consent_to_share,
+
+            location=profile.location
+        )
 
     return FullProfileResponse(
         user=user_data,
