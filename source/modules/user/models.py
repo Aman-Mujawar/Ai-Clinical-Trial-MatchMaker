@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from source.modules.PatientProfile.model import PatientProfile
     from source.modules.symptoms.model import SymptomEntry
     from source.modules.matching.model import TrialMatch
-    from source.modules.chatbot.models import ChatbotMessage, AIChatSession
+    from source.modules.chatbot.model import ChatbotMessage ,AIChatSession
 
 # --- Enums ---
 class UserRole(enum.Enum):

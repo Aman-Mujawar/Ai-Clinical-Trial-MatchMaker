@@ -11,6 +11,7 @@ from source.modules.PatientProfile.router import router as patient_router
 from source.modules.symptoms.router import router as symptom_router
 from source.modules.matching.router import router as matching_router
 from source.modules.chatbot.router import router as chatbot_router
+from source.modules.getprofile.router import router as getprofile_router   # ✅ NEW IMPORT
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("clinical-trial-backend")
@@ -37,6 +38,7 @@ app.include_router(patient_router)
 app.include_router(symptom_router)
 app.include_router(matching_router)
 app.include_router(chatbot_router)
+app.include_router(getprofile_router)  # ✅ Added getprofile router
 
 def custom_openapi():
     if app.openapi_schema:
@@ -69,4 +71,9 @@ def on_startup():
     logger.info(f"ENV DATABASE_URL set: {'DATABASE_URL' in os.environ}")
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=True)
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 8000)),
+        reload=True
+    )
