@@ -1,6 +1,5 @@
 # source/modules/user/controller.py
 from sqlalchemy.orm import Session
-from passlib.context import CryptContext
 from fastapi import HTTPException, status
 from datetime import datetime, timezone
 import uuid
@@ -8,9 +7,7 @@ import uuid
 from .models import Users
 from .schemas import SignupRequest, SignupResponse, LoginRequest, LoginResponse
 from .auth import create_access_token
-
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+from .password_utils import hash_password, verify_password   # ← NEW
 
 # System UUID for created_by / modified_by
 SYSTEM_UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
@@ -28,8 +25,8 @@ def signup_user(db: Session, request: SignupRequest) -> SignupResponse:
             detail="User with this email already exists"
         )
 
-    # Hash password safely (truncate to 72 bytes for bcrypt)
-    hashed_password = pwd_context.hash(request.password.encode("utf-8")[:72])
+    # Hash password using Argon2
+    hashed_password = hash_password(request.password)
 
     # Create new user instance
     new_user = Users(
@@ -50,7 +47,7 @@ def signup_user(db: Session, request: SignupRequest) -> SignupResponse:
     db.commit()
     db.refresh(new_user)
 
-    # Generate JWT token immediately after signup
+    # Generate JWT token
     access_token = create_access_token(user_id=str(new_user.id))
 
     return SignupResponse(
@@ -74,8 +71,8 @@ def login_user(db: Session, request: LoginRequest) -> LoginResponse:
             detail="Invalid email or password"
         )
 
-    # Verify password
-    if not pwd_context.verify(request.password.encode("utf-8")[:72], user.password_hash):
+    # Verify password using Argon2
+    if not verify_password(request.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
