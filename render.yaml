@@ -11,12 +11,12 @@ services:
     plan: free
     envVars:
       - key: APP_DB_URL
-        sync: false
+        value: ""  # Will be set in Render dashboard
       - key: COMMON_DB_URL
         value: ""
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: PORT
-        value: "10000"
+        value: ""  # Let Render assign dynamically
       - key: ENVIRONMENT
         value: "production"
