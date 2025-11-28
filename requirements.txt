@@ -24,23 +24,15 @@ itsdangerous==2.2.0
 requests==2.32.3
 loguru==0.7.2
 
-# --- Scraping & External Trial APIs ---
+# --- WHO / PubMed / FDA Trial Data ---
 beautifulsoup4==4.12.3
 lxml==5.2.2
-selenium==4.25.0
 httpx==0.27.0
+pymed==0.8.9        # PubMed search
+biopython==1.84     # NCBI XML parsing
+fda-api==1.1.2      # FDA open data wrapper
 
-# WHO Trial Registry
-who-trial-scraper==0.1.4  # (light package for neat API parsing)
-
-# PubMed / NCBI
-biopython==1.84
-pymed==0.8.9
-
-# FDA Data
-fda-api==1.1.2  # minimal wrapper around openFDA
-
-# --- NLP & Embedding ---
+# --- NLP / Similarity / Confidence Score ---
 transformers==4.44.0
 torch==2.4.0
 sentence-transformers==3.0.1
