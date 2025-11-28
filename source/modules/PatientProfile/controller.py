@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from source.modules.PatientProfile.model import PatientProfile
 from source.modules.user.models import Users
-from .schemas import PatientProfileRequest, PatientProfileResponse
+from .schemas import PatientProfileRequest, PatientProfileResponse , PatientProfileUpdateRequest, PatientProfileUpdateResponse
 
 SYSTEM_UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
@@ -62,5 +62,38 @@ def add_patient_profile(db: Session, user_id: str, request: PatientProfileReques
     return PatientProfileResponse(
         message="Patient profile created successfully",
         patient_id=str(new_profile.id),
+        user_id=str(user.id)
+    )
+
+def update_patient_profile(db: Session, user_id: str, request: PatientProfileUpdateRequest):
+    """
+    Update an existing patient profile for the authenticated user.
+    Partial update allowed.
+    """
+    # Validate user
+    user = db.query(Users).filter(Users.id == uuid.UUID(user_id)).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Check if profile exists
+    profile = db.query(PatientProfile).filter(PatientProfile.user_id == user.id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Patient profile not found")
+
+    # Update only fields provided
+    update_data = request.dict(exclude_none=True)
+
+    for field, value in update_data.items():
+        setattr(profile, field, value)
+
+    profile.modified_at = datetime.now(timezone.utc)
+    profile.modified_by = uuid.UUID(user_id)
+
+    db.commit()
+    db.refresh(profile)
+
+    return PatientProfileUpdateResponse(
+        message="Patient profile updated successfully",
+        patient_id=str(profile.id),
         user_id=str(user.id)
     )

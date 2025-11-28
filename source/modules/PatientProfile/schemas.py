@@ -52,3 +52,29 @@ class PatientProfileResponse(BaseModel):
     message: str
     patient_id: str
     user_id: str
+
+class PatientProfileUpdateRequest(BaseModel):
+    date_of_birth: Optional[date] = None
+    gender: Optional[GenderEnum] = None
+    blood_group: Optional[BloodGroupEnum] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    bmi: Optional[float] = None
+    diagnoses: Optional[Dict] = None
+    allergies: Optional[Dict] = None
+    medications: Optional[Dict] = None
+    vaccinations: Optional[Dict] = None
+    family_history: Optional[Dict] = None
+    smoking_status: Optional[SmokingStatusEnum] = None
+    alcohol_use: Optional[str] = None
+    occupation: Optional[str] = None
+    insurance: Optional[Dict] = None
+    emergency_contact: Optional[Dict] = None
+    prescreening: Optional[Dict] = None
+    consent_to_share: Optional[bool] = None
+    contact_preference: Optional[str] = None
+
+class PatientProfileUpdateResponse(BaseModel):
+    message: str
+    patient_id: str
+    user_id: str
