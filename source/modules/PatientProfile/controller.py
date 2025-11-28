@@ -6,29 +6,26 @@ from datetime import datetime, timezone
 
 from source.modules.PatientProfile.model import PatientProfile
 from source.modules.user.models import Users
-from .schemas import PatientProfileRequest, PatientProfileResponse , PatientProfileUpdateRequest, PatientProfileUpdateResponse
+from .schemas import (
+    PatientProfileRequest,
+    PatientProfileResponse,
+    PatientProfileUpdateRequest,
+    PatientProfileUpdateResponse
+)
 
 SYSTEM_UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
+
 def add_patient_profile(db: Session, user_id: str, request: PatientProfileRequest) -> PatientProfileResponse:
-    """
-    Create a new patient profile for the authenticated user.
-    Automatically assigns current user as primary provider.
-    """
-    # Verify user exists
+    """Create a new patient profile for the authenticated user."""
     user = db.query(Users).filter(Users.id == uuid.UUID(user_id)).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Check if profile already exists
     existing_profile = db.query(PatientProfile).filter(PatientProfile.user_id == user.id).first()
     if existing_profile:
         raise HTTPException(status_code=400, detail="Patient profile already exists for this user")
 
-    # Automatically assign the current user as the primary provider
-    primary_provider_uuid = user.id
-
-    # Create new patient profile
     new_profile = PatientProfile(
         user_id=user.id,
         date_of_birth=request.date_of_birth,
@@ -48,7 +45,7 @@ def add_patient_profile(db: Session, user_id: str, request: PatientProfileReques
         insurance=request.insurance,
         emergency_contact=request.emergency_contact,
         prescreening=request.prescreening,
-        primary_provider_id=primary_provider_uuid,  # ✅ Automatically set
+        primary_provider_id=user.id,
         consent_to_share=request.consent_to_share,
         contact_preference=request.contact_preference,
         created_by=SYSTEM_UUID,
@@ -65,25 +62,33 @@ def add_patient_profile(db: Session, user_id: str, request: PatientProfileReques
         user_id=str(user.id)
     )
 
+
 def update_patient_profile(db: Session, user_id: str, request: PatientProfileUpdateRequest):
     """
-    Update an existing patient profile for the authenticated user.
-    Partial update allowed.
+    Partially update the logged-in user's patient profile.
+    Only update fields the user actually sends.
     """
-    # Validate user
     user = db.query(Users).filter(Users.id == uuid.UUID(user_id)).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Check if profile exists
     profile = db.query(PatientProfile).filter(PatientProfile.user_id == user.id).first()
     if not profile:
         raise HTTPException(status_code=404, detail="Patient profile not found")
 
-    # Update only fields provided
-    update_data = request.dict(exclude_none=True)
+    # Only fields sent by user
+    update_data = request.model_dump(exclude_unset=True)
 
     for field, value in update_data.items():
+
+        # Ignore empty dicts (means user did not want to modify)
+        if isinstance(value, dict) and value == {}:
+            continue
+
+        # Ignore None
+        if value is None:
+            continue
+
         setattr(profile, field, value)
 
     profile.modified_at = datetime.now(timezone.utc)

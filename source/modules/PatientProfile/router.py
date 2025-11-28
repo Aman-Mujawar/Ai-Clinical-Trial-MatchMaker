@@ -1,5 +1,4 @@
 # source/modules/PatientProfile/router.py
-
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
@@ -41,13 +40,12 @@ def create_patient_profile(
 
 
 
-
 @router.patch(
     "/profile",
     response_model=PatientProfileUpdateResponse,
     status_code=status.HTTP_200_OK,
-    summary="Update Patient Profile",
-    description="Update fields in the authenticated user's patient profile. Requires JWT token."
+    summary="Update Patient Profile (Partial)",
+    description="Only fields sent in the request will be updated."
 )
 def edit_patient_profile(
     request: PatientProfileUpdateRequest,

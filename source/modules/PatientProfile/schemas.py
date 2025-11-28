@@ -27,6 +27,8 @@ class SmokingStatusEnum(str, enum.Enum):
     CURRENT = "CURRENT"
     UNKNOWN = "UNKNOWN"
 
+
+# -------------------- CREATE --------------------
 class PatientProfileRequest(BaseModel):
     date_of_birth: Optional[date] = None
     gender: Optional[GenderEnum] = None
@@ -48,11 +50,14 @@ class PatientProfileRequest(BaseModel):
     consent_to_share: Optional[bool] = False
     contact_preference: Optional[str] = None
 
+
 class PatientProfileResponse(BaseModel):
     message: str
     patient_id: str
     user_id: str
 
+
+# -------------------- UPDATE (PATCH) --------------------
 class PatientProfileUpdateRequest(BaseModel):
     date_of_birth: Optional[date] = None
     gender: Optional[GenderEnum] = None
@@ -73,6 +78,7 @@ class PatientProfileUpdateRequest(BaseModel):
     prescreening: Optional[Dict] = None
     consent_to_share: Optional[bool] = None
     contact_preference: Optional[str] = None
+
 
 class PatientProfileUpdateResponse(BaseModel):
     message: str

@@ -1,3 +1,5 @@
+# source/modules/TrialMatching/router.py
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -16,6 +18,12 @@ def search_trials(
     current_user_id: str = Depends(get_current_user_id)
 ):
     """
-    Search clinical trials based on user input and patient profile.
+    Search clinical trials based on:
+      - User's free-text query (symptoms/condition)
+      - (Optionally) patient profile (age, gender, diagnoses)
+      - External registries with fallbacks:
+          WHO TrialSearch → PubMed → EUCTR → AI-generated suggestions
+
+    This endpoint NEVER returns an empty `matched_trials` list.
     """
     return create_trial_match_entry(db=db, user_id=current_user_id, request=request)
