@@ -17,7 +17,6 @@ SYSTEM_UUID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 
 def add_patient_profile(db: Session, user_id: str, request: PatientProfileRequest) -> PatientProfileResponse:
-    """Create a new patient profile for the authenticated user."""
     user = db.query(Users).filter(Users.id == uuid.UUID(user_id)).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -34,17 +33,17 @@ def add_patient_profile(db: Session, user_id: str, request: PatientProfileReques
         height_cm=request.height_cm,
         weight_kg=request.weight_kg,
         bmi=request.bmi,
-        diagnoses=request.diagnoses,
-        allergies=request.allergies,
-        medications=request.medications,
-        vaccinations=request.vaccinations,
-        family_history=request.family_history,
+        diagnoses=request.diagnoses or {},
+        allergies=request.allergies or {},
+        medications=request.medications or {},
+        vaccinations=request.vaccinations or {},
+        family_history=request.family_history or {},
         smoking_status=request.smoking_status,
         alcohol_use=request.alcohol_use,
         occupation=request.occupation,
-        insurance=request.insurance,
-        emergency_contact=request.emergency_contact,
-        prescreening=request.prescreening,
+        insurance=request.insurance or {},
+        emergency_contact=request.emergency_contact or {},
+        prescreening=request.prescreening or {},
         primary_provider_id=user.id,
         consent_to_share=request.consent_to_share,
         contact_preference=request.contact_preference,
@@ -65,8 +64,9 @@ def add_patient_profile(db: Session, user_id: str, request: PatientProfileReques
 
 def update_patient_profile(db: Session, user_id: str, request: PatientProfileUpdateRequest):
     """
-    Partially update the logged-in user's patient profile.
-    Only update fields the user actually sends.
+    Safe partial update:
+    - Only update provided fields
+    - Ignore: None, "", {}, []
     """
     user = db.query(Users).filter(Users.id == uuid.UUID(user_id)).first()
     if not user:
@@ -76,19 +76,22 @@ def update_patient_profile(db: Session, user_id: str, request: PatientProfileUpd
     if not profile:
         raise HTTPException(status_code=404, detail="Patient profile not found")
 
-    # Only fields sent by user
+    # Only include fields explicitly provided in the PATCH body
     update_data = request.model_dump(exclude_unset=True)
 
     for field, value in update_data.items():
 
-        # Ignore empty dicts (means user did not want to modify)
-        if isinstance(value, dict) and value == {}:
-            continue
-
-        # Ignore None
+        # ----- Ignore empty fields (frontend + swagger friendly) -----
         if value is None:
             continue
+        if isinstance(value, str) and value.strip() == "":
+            continue
+        if isinstance(value, dict) and len(value.keys()) == 0:
+            continue
+        if isinstance(value, list) and len(value) == 0:
+            continue
 
+        # ----- Apply the update -----
         setattr(profile, field, value)
 
     profile.modified_at = datetime.now(timezone.utc)
