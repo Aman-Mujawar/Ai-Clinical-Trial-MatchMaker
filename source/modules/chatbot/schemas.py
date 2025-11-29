@@ -1,4 +1,5 @@
 # source/modules/chatbot/schemas.py
+
 from pydantic import BaseModel
 from typing import Optional, List
 
@@ -23,11 +24,11 @@ class TrialInfo(BaseModel):
     lat: Optional[float] = None
     lng: Optional[float] = None
 
-    # Content
-    summary: Optional[str] = None   # may already be simplified
+    # Content / explanation
+    summary: Optional[str] = None
     url: Optional[str] = None
 
-    # Matching meta
+    # AI / ranking
     confidence_score: Optional[float] = None
     explanation: Optional[str] = None
     ai_generated: bool = False

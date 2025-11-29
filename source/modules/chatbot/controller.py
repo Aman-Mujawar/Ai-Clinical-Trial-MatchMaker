@@ -1,5 +1,6 @@
 # source/modules/chatbot/controller.py
 
+import uuid
 from sqlalchemy.orm import Session
 
 from source.modules.PatientProfile.model import PatientProfile
@@ -12,55 +13,82 @@ from .service import (
 from .model import AIChatSession
 
 
+def _build_context_from_profile(profile: PatientProfile) -> dict:
+    """
+    Build a lightweight context dict from the patient profile
+    for personalization.
+    """
+    conditions = []
+    diagnoses = []
+
+    if hasattr(profile, "diagnoses") and isinstance(profile.diagnoses, dict):
+        diagnoses = list(profile.diagnoses.keys())
+
+    # Some schemas might store a separate 'conditions' dict/list.
+    if hasattr(profile, "conditions"):
+        val = getattr(profile, "conditions")
+        if isinstance(val, dict):
+            conditions = list(val.keys())
+        elif isinstance(val, list):
+            conditions = val
+
+    meds = []
+    if hasattr(profile, "medications") and isinstance(profile.medications, dict):
+        # Use all values of the medications dict for context.
+        meds = list(profile.medications.values())
+
+    allergies = []
+    if hasattr(profile, "allergies") and isinstance(profile.allergies, dict):
+        allergies = list(profile.allergies.values())
+
+    return {
+        "conditions": conditions,
+        "diagnoses": diagnoses,
+        "medications": meds,
+        "allergies": allergies,
+    }
+
+
 def ask_patient_question(
     db: Session,
     current_user_id: str,
-    request: AIChatRequest
+    request: AIChatRequest,
 ) -> AIChatResponse:
     """
-    Main chatbot entrypoint:
-      1) Load patient profile (for personalization)
-      2) Load conversation history
-      3) Generate answer using safety + KB + HF API
-      4) Fetch trial suggestions using matching engine
-      5) Save chat session
+    Orchestrates:
+      - Load patient profile context
+      - Load chat history
+      - Generate answer
+      - Fetch matched trials
+      - Save updated conversation
     """
-    # 1) Patient profile context (optional)
-    patient_profile = db.query(PatientProfile).filter_by(
-        user_id=current_user_id
-    ).first()
+    # Fetch patient profile
+    try:
+        user_uuid = uuid.UUID(current_user_id)
+    except Exception:
+        user_uuid = None
 
-    context = None
-    if patient_profile:
-        context = {
-            "conditions": getattr(patient_profile, "conditions", []) or [],
-            "medications": (
-                patient_profile.medications.get("current", [])
-                if getattr(patient_profile, "medications", None)
-                else []
-            ),
-            "allergies": (
-                patient_profile.allergies.get("drug_allergies", [])
-                if getattr(patient_profile, "allergies", None)
-                else []
-            ),
-        }
-
-    # 2) Past conversation
-    session = db.query(AIChatSession).filter_by(user_id=current_user_id).first()
-    history = session.messages if session else []
-
-    # 3) Generate AI answer (safe + KB + HF + follow-ups + personalization)
-    answer = generate_patient_answer(
-        request.question,
-        context=context,
-        conversation_history=history,
+    patient_profile = (
+        db.query(PatientProfile).filter_by(user_id=user_uuid).first()
+        if user_uuid
+        else None
     )
 
-    # 4) Trial suggestions (using full matching engine)
+    context = _build_context_from_profile(patient_profile) if patient_profile else None
+
+    # Existing session / history
+    session: AIChatSession | None = (
+        db.query(AIChatSession).filter_by(user_id=current_user_id).first()
+    )
+    history = session.messages if session else []
+
+    # Generate AI answer
+    answer = generate_patient_answer(request.question, context=context, history=history)
+
+    # Related trials
     trial_matches = find_trials_for_chatbot(request.question)
 
-    # 5) Store/update session
+    # Save session
     session = save_or_update_session(db, current_user_id, request.question, answer)
     conversation_messages = [AIChatMessage(**msg) for msg in session.messages]
 

@@ -1,680 +1,409 @@
 # source/modules/chatbot/service.py
 
-from __future__ import annotations
-
-import os
-import re
-import uuid
+from typing import Optional, Dict, Any, List
 from datetime import datetime
-from typing import Optional, Dict, Any, List, Tuple
+import uuid
+import re
 
-import requests
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
+from sqlalchemy.orm import Session
 
 from source.modules.matching.service import fetch_trials_with_fallbacks
 from .model import AIChatSession
+from .classifier_model import classify_text
+from .followups import get_followup_questions
+from .rewriter import simplify_text
 
-
-# =========================================================
-# Global config
-# =========================================================
-
-HF_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
-HF_MODEL_ID = os.getenv("HUGGINGFACE_MODEL_ID", "google/flan-t5-small")
 
 DISCLAIMER = (
     "\n\nDisclaimer: This information is for general educational purposes only "
-    "and is not a substitute for professional medical advice, diagnosis, or treatment. "
-    "Always consult a qualified healthcare provider with any questions about your health."
+    "and is not a substitute for professional medical advice. Always consult a "
+    "qualified healthcare provider for diagnosis and treatment."
 )
 
-# =========================================================
-# Knowledge base (conditions)
-# =========================================================
+# ========================================
+# KNOWLEDGE BASE (clean, no emojis)
+# ========================================
 
 CONDITION_RESPONSES: Dict[str, str] = {
     "cancer": (
-        "I'm sorry that you are dealing with cancer; it can be a very difficult experience. "
-        "Here are some general points that often help people living with cancer:\n"
-        "• Work closely with your oncology team and follow the treatment plan they recommend.\n"
-        "• Try to maintain nutrition with small, frequent meals if your appetite is low.\n"
-        "• Stay as active as your energy level allows; even light movement can help.\n"
-        "• Build a strong support system of family, friends, and support groups.\n"
-        "• Talk with your doctor about ways to manage side effects from treatment.\n"
-        "• Ask whether palliative or supportive care services are available to improve comfort and quality of life."
+        "I am sorry that you are dealing with cancer. This is a serious condition, "
+        "and your oncology team is the best source of guidance. In general, it is helpful to:\n"
+        "- Follow your treatment plan and keep all recommended appointments\n"
+        "- Ask questions about the goals and side effects of each treatment\n"
+        "- Maintain nutrition as best as you can, with small, frequent meals if needed\n"
+        "- Stay as active as your energy allows\n"
+        "- Seek emotional support from family, friends, or support groups\n"
+        "- Tell your care team about any new or worsening symptoms"
     ),
     "diabetes": (
-        "Managing diabetes effectively usually involves several daily habits:\n"
-        "• Monitor your blood sugar as recommended by your doctor.\n"
-        "• Follow a balanced eating plan that emphasizes whole grains, lean proteins, vegetables, and limited added sugars.\n"
-        "• Exercise regularly, aiming for about 30 minutes on most days if it is safe for you.\n"
-        "• Take medications or insulin exactly as prescribed.\n"
-        "• Check your feet every day for cuts or sores, and report problems early.\n"
-        "• Keep regular medical appointments for lab work and eye, kidney, and foot checks."
+        "Managing diabetes well focuses on controlling blood sugar and protecting long-term health:\n"
+        "- Check your blood sugar as recommended by your doctor\n"
+        "- Follow a balanced eating plan with whole grains, lean protein, and vegetables\n"
+        "- Exercise regularly, even walking for 20 to 30 minutes can help\n"
+        "- Take diabetes medicines or insulin exactly as prescribed\n"
+        "- Check your feet daily for cuts, sores, or redness\n"
+        "- Attend regular check-ups to monitor your eyes, kidneys, and heart"
     ),
     "asthma": (
-        "Living with asthma requires ongoing management to reduce flare-ups:\n"
-        "• Keep your quick-relief (rescue) inhaler with you at all times.\n"
-        "• Take your daily controller inhaler or medications exactly as prescribed.\n"
-        "• Try to identify and avoid triggers such as smoke, dust, pollen, strong odors, or cold air.\n"
-        "• Use a peak flow meter if prescribed to monitor how well your lungs are working.\n"
-        "• Create an asthma action plan with your clinician so you know what to do when symptoms worsen.\n"
-        "• Seek urgent medical care if you have severe breathing difficulty or your inhaler is not helping."
+        "Living with asthma requires good day-to-day control:\n"
+        "- Use your controller inhaler every day if it was prescribed\n"
+        "- Keep your rescue inhaler with you in case of sudden symptoms\n"
+        "- Try to avoid known triggers such as smoke, dust, or strong odors\n"
+        "- Monitor your breathing and use a peak flow meter if your doctor provided one\n"
+        "- Follow a written asthma action plan if you have one\n"
+        "- Seek medical care if you are using your rescue inhaler more often than usual"
     ),
     "heart": (
-        "Heart-related conditions are serious and require careful management:\n"
-        "• Take all heart medications exactly as prescribed and do not stop them suddenly.\n"
-        "• Follow a heart-healthy diet that is low in sodium (salt) and focuses on fruits, vegetables, and healthy fats.\n"
-        "• Avoid smoking and limit or avoid alcohol.\n"
-        "• Monitor your blood pressure and weight if your doctor has advised it.\n"
-        "• Manage stress with relaxation techniques, gentle activity, or counseling if needed.\n"
-        "• Seek immediate medical help if you develop chest pain, severe shortness of breath, or sudden severe symptoms."
+        "Heart conditions are very important to manage carefully:\n"
+        "- Take heart medications exactly as prescribed\n"
+        "- Limit salt in your diet and avoid very salty or processed foods\n"
+        "- Do not smoke and limit or avoid alcohol\n"
+        "- Try gentle exercise as allowed by your doctor\n"
+        "- Monitor your weight and blood pressure regularly\n"
+        "- Seek urgent medical care if you have new chest pain, shortness of breath, or sudden swelling"
     ),
     "anxiety": (
-        "Anxiety is common and can often be improved with a combination of strategies:\n"
-        "• Practice slow breathing exercises or relaxation techniques during anxious moments.\n"
-        "• Try mindfulness or meditation apps to help calm racing thoughts.\n"
-        "• Keep a regular sleep schedule and limit caffeine and alcohol.\n"
-        "• Exercise regularly; even short walks can reduce tension.\n"
-        "• Talk with someone you trust about how you feel, and consider therapy.\n"
-        "• If anxiety is severe or interfering with daily life, discuss treatment options with a mental health professional."
+        "Anxiety can affect both mind and body, but there are helpful strategies:\n"
+        "- Practice slow, deep breathing when you feel anxious\n"
+        "- Use relaxation techniques such as mindfulness or simple meditation\n"
+        "- Keep a regular sleep schedule as much as possible\n"
+        "- Limit caffeine and alcohol, which can worsen anxiety\n"
+        "- Stay physically active; even short walks can reduce stress\n"
+        "- Consider talking with a counselor, therapist, or mental health professional"
     ),
     "depression": (
-        "Depression is a medical condition, and it is treatable. Some general points:\n"
-        "• Consider speaking with a mental health professional (therapist, counselor, or psychiatrist).\n"
-        "• Try to stay connected to supportive people rather than isolating yourself.\n"
-        "• Keep a gentle daily routine, even if it is small tasks such as getting dressed and going outside briefly.\n"
-        "• Incorporate physical activity if possible, as it can improve mood over time.\n"
-        "• Avoid alcohol or recreational drugs, which can worsen depression.\n"
-        "• If you ever have thoughts of self-harm, seek immediate help from emergency services or a crisis line."
+        "Depression is a medical condition, not a personal weakness, and it is treatable:\n"
+        "- Try to maintain a daily routine even if motivation is low\n"
+        "- Stay connected with supportive people if you can\n"
+        "- Engage in small activities you used to enjoy, even if briefly\n"
+        "- Avoid using alcohol or drugs to manage mood\n"
+        "- Seek help from a therapist, counselor, or doctor to discuss treatment options\n"
+        "- If you ever have thoughts of harming yourself, seek immediate help"
     ),
     "hypertension": (
-        "High blood pressure (hypertension) often has no symptoms but can damage organs over time.\n"
-        "General management usually includes:\n"
-        "• Taking blood pressure medication exactly as prescribed.\n"
-        "• Reducing sodium intake in your diet and limiting processed foods.\n"
-        "• Maintaining a healthy body weight and staying physically active.\n"
-        "• Limiting alcohol and avoiding tobacco.\n"
-        "• Checking your blood pressure at home if your provider recommends it.\n"
-        "• Keeping regular follow-up appointments to adjust your treatment plan."
+        "High blood pressure often has no symptoms but can damage organs over time:\n"
+        "- Take blood pressure medicine at the same time each day if prescribed\n"
+        "- Reduce salt intake and limit processed foods\n"
+        "- Maintain or work toward a healthy weight\n"
+        "- Exercise regularly as your doctor allows\n"
+        "- Avoid smoking and limit alcohol use\n"
+        "- Check your blood pressure at home if you have a monitor"
     ),
     "arthritis": (
-        "Arthritis affects joints and can cause pain and stiffness. Helpful strategies often include:\n"
-        "• Staying active with low-impact exercises such as walking, swimming, or cycling.\n"
-        "• Maintaining a healthy weight to reduce stress on joints.\n"
-        "• Using heat or cold packs on painful joints as advised by your provider.\n"
-        "• Taking medications, such as anti-inflammatory drugs, exactly as prescribed.\n"
-        "• Considering physical or occupational therapy for targeted exercises and joint protection techniques.\n"
-        "• Using braces, canes, or other assistive devices when needed for support."
+        "Arthritis typically involves joint pain and stiffness:\n"
+        "- Stay active with low-impact exercises like walking or swimming\n"
+        "- Maintain a healthy weight to reduce strain on joints\n"
+        "- Use heat or cold packs for pain or stiffness if helpful\n"
+        "- Take medications as prescribed and discuss any side effects\n"
+        "- Consider physical therapy for exercises that protect your joints\n"
+        "- Use supportive devices if recommended, such as braces or canes"
     ),
     "copd": (
-        "Chronic Obstructive Pulmonary Disease (COPD) is a long-term lung condition. Management typically includes:\n"
-        "• Quitting smoking completely if you currently smoke; this is one of the most important steps.\n"
-        "• Using inhalers or other medications exactly as prescribed.\n"
-        "• Practicing breathing exercises such as pursed-lip breathing.\n"
-        "• Staying physically active but pacing yourself and resting when needed.\n"
-        "• Avoiding lung irritants like smoke, pollution, and strong chemical fumes.\n"
-        "• Staying up to date with flu and pneumonia vaccines as recommended.\n"
-        "• Using supplemental oxygen if prescribed and following safety instructions carefully."
+        "Chronic obstructive pulmonary disease (COPD) affects your breathing:\n"
+        "- If you smoke, quitting is the most important step you can take\n"
+        "- Use inhalers and oxygen exactly as prescribed\n"
+        "- Practice breathing exercises such as pursed-lip breathing\n"
+        "- Stay active but pace yourself and rest as needed\n"
+        "- Avoid air pollutants, smoke, and strong fumes\n"
+        "- Keep up with vaccinations such as flu and pneumonia"
     ),
     "migraine": (
-        "Migraines can be very disabling, but some strategies may help:\n"
-        "• Take prescribed migraine medications at the first sign of symptoms if your doctor has given you a plan.\n"
-        "• Rest in a quiet, dark room and limit noise and bright lights.\n"
-        "• Stay hydrated and avoid skipping meals.\n"
-        "• Keep a headache diary to identify possible triggers such as certain foods, lack of sleep, or stress.\n"
-        "• Try to maintain regular sleep, eating, and exercise patterns.\n"
-        "• Discuss preventive treatment options with your clinician if migraines occur frequently."
+        "Migraines can cause severe headaches and other symptoms:\n"
+        "- Take prescribed migraine medicine at the first sign of a headache\n"
+        "- Rest in a dark, quiet room when symptoms begin\n"
+        "- Keep a headache diary to find triggers such as certain foods, lack of sleep, or stress\n"
+        "- Stay hydrated and eat at regular times\n"
+        "- Talk with your doctor about preventive treatment if attacks are frequent"
     ),
 }
-
-# =========================================================
-# Symptom guide
-# =========================================================
 
 SYMPTOM_GUIDE: Dict[str, str] = {
     "tooth": (
-        "For tooth pain, you can:\n"
-        "• Rinse your mouth with warm salt water (about half a teaspoon of salt in a glass of water).\n"
-        "• Use over-the-counter pain relievers such as ibuprofen or acetaminophen as directed on the label.\n"
-        "• Apply a cold pack to the outside of your cheek for short periods to reduce pain and swelling.\n"
-        "• Avoid very hot, very cold, or very sweet foods and drinks.\n"
-        "• Gently floss around the painful tooth to remove any trapped food.\n\n"
-        "You should see a dentist soon, especially if pain is severe, lasts more than a couple of days, or if you have fever, swelling, or trouble swallowing."
+        "Tooth pain can be caused by cavities, infection, or gum problems:\n"
+        "- Rinse your mouth with warm salt water\n"
+        "- Take over-the-counter pain medicine if you can safely use it\n"
+        "- Avoid very hot, cold, or sweet foods on the painful side\n"
+        "- Gently floss around the sore tooth to remove trapped food\n"
+        "- See a dentist as soon as possible, especially if you have swelling or fever"
     ),
     "dental": (
-        "For general dental problems, home care is limited but can provide temporary relief:\n"
-        "• Schedule a dental appointment as soon as possible; professional evaluation is important.\n"
-        "• Rinse with warm salt water to ease irritation.\n"
-        "• Use over-the-counter pain medicines as needed and as directed.\n"
-        "• Maintain gentle brushing and flossing, avoiding very hard foods on the affected side.\n\n"
-        "Seek urgent care if you have facial swelling, difficulty breathing or swallowing, high fever, or bleeding that does not stop."
+        "For general dental problems:\n"
+        "- Maintain gentle brushing twice a day and floss daily\n"
+        "- Rinse with warm salt water to reduce irritation\n"
+        "- Avoid chewing on the painful side of your mouth\n"
+        "- Make an appointment with a dentist promptly\n"
+        "- Seek urgent care if you have severe pain, swelling, or trouble swallowing"
     ),
     "gum": (
-        "For gum problems such as swelling or bleeding:\n"
-        "• Brush gently twice daily with a soft toothbrush.\n"
-        "• Floss carefully once a day to remove plaque and food between teeth.\n"
-        "• Rinse with an antiseptic or salt-water mouthwash.\n"
-        "• Avoid tobacco products.\n"
-        "• Stay hydrated and maintain good oral hygiene.\n\n"
-        "See a dentist if your gums are very painful, bleed heavily, or if you notice loose teeth."
+        "Gum problems may involve redness, swelling, or bleeding:\n"
+        "- Brush gently with a soft toothbrush\n"
+        "- Floss daily to remove plaque between teeth\n"
+        "- Rinse with an antiseptic mouthwash if available\n"
+        "- Avoid tobacco products\n"
+        "- See a dentist if bleeding is heavy, long-lasting, or gums are very painful"
     ),
     "breathing": (
-        "Breathing difficulties can range from mild to life-threatening.\n\n"
-        "Mild shortness of breath:\n"
-        "• Sit upright and try to stay calm.\n"
-        "• Take slow, deep breaths; sometimes pursed-lip breathing can help.\n"
-        "• Avoid lying flat.\n"
-        "• Use your prescribed inhaler if you have asthma or COPD.\n\n"
-        "If symptoms are moderate or severe, or if they come on suddenly, you should seek urgent medical care."
+        "Breathing difficulty can range from mild to serious:\n"
+        "- Sit upright and try to stay calm\n"
+        "- Use prescribed inhalers if you have asthma or COPD\n"
+        "- Avoid lying flat if that worsens symptoms\n"
+        "- Call for urgent medical help if breathing becomes much worse, especially with chest pain or bluish lips"
     ),
     "shortness of breath": (
-        "Shortness of breath can have many causes, some serious.\n\n"
-        "If it is mild and new, you can try:\n"
-        "• Sitting upright and taking slow, controlled breaths.\n"
-        "• Using prescribed inhalers if you have a known lung condition.\n\n"
-        "If it is severe, sudden, associated with chest pain, or you feel faint, emergency medical help is needed."
+        "Shortness of breath should be taken seriously:\n"
+        "- For mild shortness of breath, rest and sit upright\n"
+        "- Use prescribed inhalers if you have them\n"
+        "- If the shortness of breath is sudden, severe, or with chest pain, call emergency services immediately"
     ),
     "chest pain": (
-        "Chest pain can be a sign of a heart problem or other serious condition.\n"
-        "If you have pressure, squeezing, or pain in the chest, especially if it spreads to the jaw, neck, arms, or back, "
-        "or is associated with shortness of breath, sweating, nausea, or feeling faint, you should seek emergency medical care immediately."
+        "Chest pain can be an emergency:\n"
+        "- If you have chest pain with pressure, sweating, nausea, or shortness of breath, call emergency services immediately\n"
+        "- Do not drive yourself to the hospital\n"
+        "- Rest and avoid physical exertion while waiting for help"
     ),
-    # You can add more symptom entries here if you had them before.
+    "fever_cough": (
+        "Fever and cough may be due to a viral or bacterial infection:\n"
+        "- Stay well hydrated with water or clear fluids\n"
+        "- Rest as much as possible\n"
+        "- Use fever-reducing medicine such as acetaminophen or ibuprofen if you can safely take it\n"
+        "- Seek medical care if fever lasts more than a few days, or if you have trouble breathing or chest pain"
+    ),
 }
-
-# =========================================================
-# General health topics
-# =========================================================
 
 GENERAL_TOPICS: Dict[str, str] = {
     "medication": (
-        "Some general tips for taking medications safely:\n"
-        "• Take medicines exactly as prescribed and do not change doses on your own.\n"
-        "• Use a pill organizer or schedule to help you remember doses.\n"
-        "• Keep an up-to-date list of all prescriptions, over-the-counter drugs, and supplements.\n"
-        "• Ask your healthcare provider or pharmacist about possible side effects and interactions.\n"
-        "• Do not share prescription medication with other people."
+        "Safe medication use includes:\n"
+        "- Take medicines exactly as prescribed\n"
+        "- Do not skip doses or double doses\n"
+        "- Do not share prescription medicines with others\n"
+        "- Keep an updated list of all medicines and supplements you use\n"
+        "- Ask your doctor or pharmacist about side effects and interactions\n"
+        "- Store medicines as directed and away from children"
     ),
     "nutrition": (
-        "General healthy eating advice often includes:\n"
-        "• Emphasizing vegetables, fruits, whole grains, and lean proteins.\n"
-        "• Limiting sugary drinks, highly processed foods, and excessive saturated fat.\n"
-        "• Watching portion sizes and eating slowly.\n"
-        "• Staying well hydrated throughout the day.\n"
-        "• Working with a registered dietitian for personalized guidance if you have medical conditions."
+        "Healthy eating can support overall health:\n"
+        "- Focus on vegetables, fruits, whole grains, and lean proteins\n"
+        "- Limit sugary drinks and highly processed foods\n"
+        "- Choose healthy fats such as olive oil or nuts over fried foods\n"
+        "- Drink enough water throughout the day\n"
+        "- Aim for regular meals instead of skipping and overeating later"
     ),
     "exercise": (
-        "Physical activity is helpful for many aspects of health. Common guidance:\n"
-        "• Aim for at least 150 minutes per week of moderate-intensity activity if it is safe for you.\n"
-        "• Include muscle-strengthening exercises on two or more days a week.\n"
-        "• Start slowly if you have been inactive and increase gradually.\n"
-        "• Warm up before exercise and cool down afterwards.\n"
-        "• Talk with your healthcare provider before starting a new exercise program if you have chronic conditions."
+        "Regular physical activity has many benefits:\n"
+        "- Aim for at least 150 minutes of moderate activity per week if you can\n"
+        "- Include strength training a couple of times per week\n"
+        "- Start slowly if you have not exercised in a while\n"
+        "- Warm up and cool down to reduce injury risk\n"
+        "- Check with your doctor before starting a new program if you have medical conditions"
     ),
     "sleep": (
-        "Good sleep habits can improve energy and mood:\n"
-        "• Keep a regular sleep schedule, going to bed and waking up at similar times each day.\n"
-        "• Create a relaxing pre-sleep routine (such as reading or light stretching).\n"
-        "• Keep your bedroom dark, quiet, and comfortably cool.\n"
-        "• Limit screen time, caffeine, and heavy meals before bed.\n"
-        "• If you regularly have trouble sleeping, discuss this with your healthcare provider."
+        "Good sleep supports mental and physical health:\n"
+        "- Try to go to bed and wake up at the same time each day\n"
+        "- Keep your bedroom dark, cool, and quiet\n"
+        "- Limit caffeine late in the day\n"
+        "- Avoid heavy meals and screens just before bed\n"
+        "- If sleep problems continue, speak with a healthcare provider"
     ),
     "stress": (
-        "Some general strategies to manage stress include:\n"
-        "• Practicing deep breathing or relaxation exercises.\n"
-        "• Getting regular physical activity.\n"
-        "• Staying connected with supportive friends or family.\n"
-        "• Breaking large tasks into smaller steps and setting realistic goals.\n"
-        "• Making time for hobbies or enjoyable activities.\n"
-        "• Seeking counseling or therapy if stress feels overwhelming."
+        "Stress management can help both body and mind:\n"
+        "- Use simple relaxation techniques such as slow breathing\n"
+        "- Stay physically active to release tension\n"
+        "- Keep in touch with supportive friends or family\n"
+        "- Break large tasks into smaller steps\n"
+        "- Consider counseling if stress feels overwhelming or long lasting"
     ),
 }
 
-# =========================================================
-# Emergency keywords
-# =========================================================
+# ========================================
+# EMERGENCY CHECK
+# ========================================
 
-EMERGENCY_KEYWORDS: List[str] = [
+EMERGENCY_KEYWORDS = [
     "suicide",
     "kill myself",
     "end my life",
     "want to die",
     "chest pain",
     "heart attack",
-    "can't breathe",
     "cannot breathe",
+    "can't breathe",
+    "severe shortness of breath",
     "stroke",
     "severe bleeding",
     "overdose",
     "poisoning",
     "unconscious",
     "seizure",
-    "seizures",
     "severe allergic reaction",
 ]
 
-# =========================================================
-# Symptom classifier (tiny ML model)
-# =========================================================
-
-_SYMPTOM_VECTORIZER: Optional[TfidfVectorizer] = None
-_SYMPTOM_CLF: Optional[LogisticRegression] = None
-_SYMPTOM_LABELS: List[str] = []
-
-
-def _train_symptom_classifier() -> None:
-    global _SYMPTOM_VECTORIZER, _SYMPTOM_CLF, _SYMPTOM_LABELS
-
-    if _SYMPTOM_CLF is not None:
-        return
-
-    texts: List[str] = []
-    labels: List[str] = []
-
-    # Build simple synthetic training data from keys
-    for cond in CONDITION_RESPONSES.keys():
-        examples = [
-            f"i have {cond}",
-            f"diagnosed with {cond}",
-            f"suffering from {cond}",
-            f"{cond} problem",
-        ]
-        texts.extend(examples)
-        labels.extend([cond] * len(examples))
-
-    for sym in SYMPTOM_GUIDE.keys():
-        examples = [
-            f"{sym} pain",
-            f"pain in my {sym}",
-            f"problem with {sym}",
-            f"having {sym}",
-        ]
-        texts.extend(examples)
-        labels.extend([sym] * len(examples))
-
-    _SYMPTOM_LABELS = sorted(set(labels))
-    _SYMPTOM_VECTORIZER = TfidfVectorizer(lowercase=True, ngram_range=(1, 2))
-    X = _SYMPTOM_VECTORIZER.fit_transform(texts)
-    _SYMPTOM_CLF = LogisticRegression(max_iter=500)
-    _SYMPTOM_CLF.fit(X, labels)
-
-
-def classify_symptom(question: str) -> Optional[str]:
-    if not question:
-        return None
-    _train_symptom_classifier()
-
-    assert _SYMPTOM_VECTORIZER is not None
-    assert _SYMPTOM_CLF is not None
-
-    X = _SYMPTOM_VECTORIZER.transform([question])
-    label = _SYMPTOM_CLF.predict(X)[0]
-    # Sanity check: ensure label still in KB
-    if label in CONDITION_RESPONSES or label in SYMPTOM_GUIDE:
-        return label
-    return None
-
-
-# =========================================================
-# Follow-up question templates
-# =========================================================
-
-FOLLOW_UP_QUESTIONS: Dict[str, List[str]] = {
-    "chest pain": [
-        "Where exactly in your chest do you feel the pain (center, left side, right side)?",
-        "When did the pain start, and how long does it last?",
-        "Is the pain sharp, dull, or like pressure or squeezing?",
-        "Does it get worse with activity, deep breathing, or certain movements?",
-    ],
-    "breathing": [
-        "When did the breathing difficulty start?",
-        "Is it constant or does it come and go?",
-        "Do you have a history of asthma, COPD, or heart problems?",
-    ],
-    "shortness of breath": [
-        "Did the shortness of breath start suddenly or gradually?",
-        "Are you having any chest pain, wheezing, or cough with it?",
-        "Have you had this problem before?",
-    ],
-    "diabetes": [
-        "Are you taking any medications or insulin for diabetes?",
-        "Have you checked your blood sugar recently? What was the value?",
-        "Have you noticed symptoms like increased thirst, urination, or blurry vision?",
-    ],
-    "asthma": [
-        "How often do you use your rescue inhaler?",
-        "Do you know what usually triggers your asthma symptoms?",
-        "Have your symptoms been getting worse recently?",
-    ],
-    "migraine": [
-        "How often do your migraines occur?",
-        "Do you notice any warning signs before a migraine starts?",
-        "What treatments or medications have helped you in the past?",
-    ],
-    # Default follow-ups used when a more specific key is not found
-    "_default": [
-        "How long have you been experiencing this issue?",
-        "Is the problem getting better, worse, or staying the same?",
-        "Have you already discussed this with a doctor or nurse?",
-    ],
-}
-
-
-def build_followup_text(label: Optional[str]) -> str:
-    if not label:
-        qs = FOLLOW_UP_QUESTIONS.get("_default", [])
-    else:
-        qs = FOLLOW_UP_QUESTIONS.get(label, FOLLOW_UP_QUESTIONS.get("_default", []))
-
-    if not qs:
-        return ""
-
-    lines = ["\n\nTo better understand your situation, it would help to know:"]
-    for q in qs:
-        lines.append(f"• {q}")
-    return "\n".join(lines)
-
-
-# =========================================================
-# Emergency logic
-# =========================================================
 
 def is_emergency(question: str) -> bool:
-    q = question.lower()
-    return any(k in q for k in EMERGENCY_KEYWORDS)
+    q_lower = question.lower()
+    return any(keyword in q_lower for keyword in EMERGENCY_KEYWORDS)
 
 
 def get_emergency_response(question: str) -> str:
-    q = question.lower()
-    if any(w in q for w in ["suicide", "kill myself", "end my life", "want to die"]):
+    q_lower = question.lower()
+
+    if any(kw in q_lower for kw in ["suicide", "kill myself", "end my life", "want to die"]):
         return (
-            "This sounds like a crisis situation. Please seek help immediately:\n"
-            "• In the United States, you can call or text 988 to reach the Suicide & Crisis Lifeline.\n"
-            "• You can contact emergency services (such as 911) or go to the nearest emergency room.\n"
-            "• If you can, reach out to a trusted person in your life right now."
+            "This sounds like a mental health crisis. Please seek immediate help:\n"
+            "- Call your local emergency number or crisis line\n"
+            "- In the United States, you can call or text 988 for suicide and crisis support\n"
+            "- Reach out to a trusted person or go to the nearest emergency department"
             + DISCLAIMER
         )
 
     return (
-        "Your description raises concern for a possible medical emergency. "
-        "It is important to seek immediate medical care by calling emergency services, "
-        "contacting your doctor right away, or going to the nearest emergency department."
+        "Your description suggests a possible medical emergency. Please call your local "
+        "emergency number or go to the nearest emergency department immediately."
         + DISCLAIMER
     )
 
 
-# =========================================================
-# Knowledge base matching (rule-based)
-# =========================================================
+# ========================================
+# KB MATCHING
+# ========================================
 
-def find_matching_response(question: str) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Returns (response_text, label_key) where label_key is the condition/symptom
-    used for follow-up questions and personalization.
-    """
-    if not question:
-        return None, None
+def find_matching_response(question: str) -> Optional[str]:
+    q_lower = question.lower()
 
-    q = question.lower()
+    # Condition words
+    for condition, text in CONDITION_RESPONSES.items():
+        if condition in q_lower:
+            return text
 
-    # 1. Condition-based
-    for cond, resp in CONDITION_RESPONSES.items():
-        if cond in q:
-            return resp, cond
+    # Symptom phrases
+    for key, text in SYMPTOM_GUIDE.items():
+        if key in q_lower:
+            return text
 
-    # 2. Symptom-based
-    for sym, resp in SYMPTOM_GUIDE.items():
-        if sym in q:
-            return resp, sym
+    # General topics
+    for topic, text in GENERAL_TOPICS.items():
+        if topic in q_lower or f"about {topic}" in q_lower:
+            return text
 
-    # 3. General topics
-    for topic, resp in GENERAL_TOPICS.items():
-        if topic in q or f"about {topic}" in q:
-            return resp, topic
-
-    return None, None
+    return None
 
 
-# =========================================================
-# HuggingFace Inference API helpers
-# =========================================================
-
-def _hf_generate(prompt: str, max_new_tokens: int = 256) -> Optional[str]:
-    """Call HuggingFace Inference API for text generation."""
-    if not HF_API_KEY or not HF_MODEL_ID:
-        return None
-
-    try:
-        url = f"https://api-inference.huggingface.co/models/{HF_MODEL_ID}"
-        headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-        payload = {
-            "inputs": prompt,
-            "parameters": {
-                "max_new_tokens": max_new_tokens,
-                "temperature": 0.3,
-                "do_sample": False,
-            },
-        }
-        resp = requests.post(url, json=payload, headers=headers, timeout=15)
-        if resp.status_code != 200:
-            return None
-
-        data = resp.json()
-        # HF returns a list of dicts for text-generation
-        if isinstance(data, list) and data and "generated_text" in data[0]:
-            text = data[0]["generated_text"]
-            return text.strip()
-        return None
-    except Exception:
-        return None
-
-
-def generate_hf_answer(question: str, context: Optional[Dict[str, Any]] = None) -> Optional[str]:
-    """
-    Use a small HF model as a last-resort assistant for general questions.
-    We wrap it with clear instructions and safety language.
-    """
-    profile_bits: List[str] = []
-    if context:
-        conds = context.get("conditions") or []
-        if conds:
-            profile_bits.append(f"Known conditions: {', '.join(map(str, conds))}.")
-        meds = context.get("medications") or []
-        if meds:
-            profile_bits.append(f"Medications: {', '.join(map(str, meds))}.")
-        allergies = context.get("allergies") or []
-        if allergies:
-            profile_bits.append(f"Allergies: {', '.join(map(str, allergies))}.")
-
-    profile_text = " ".join(profile_bits) if profile_bits else "No specific profile details."
-
-    prompt = (
-        "You are a medical information assistant for patients. "
-        "Answer in clear, non-technical language that a layperson can understand. "
-        "You must not give a diagnosis or prescribe treatment. "
-        "You may describe typical possibilities and general information, "
-        "but always recommend seeing a healthcare professional for personal medical decisions.\n\n"
-        f"Patient context: {profile_text}\n\n"
-        f"Patient question: {question}\n\n"
-        "Provide a short answer of about 2 to 4 paragraphs and, if useful, a few bullet points."
-    )
-
-    raw = _hf_generate(prompt)
-    if not raw:
-        return None
-
-    return raw.strip() + DISCLAIMER
-
-
-def simplify_medical_text(text: str) -> Optional[str]:
-    """
-    Plain-language rewriting module: turn technical trial descriptions
-    into simple language. Used for trial summaries in chatbot results.
-    """
-    if not text:
-        return None
-    if not HF_API_KEY or not HF_MODEL_ID:
-        return None
-
-    prompt = (
-        "Rewrite the following medical or technical description in simple, "
-        "patient-friendly language that a non-expert can understand. "
-        "Keep the key facts but make sentences shorter and clearer.\n\n"
-        f"Original text:\n{text}\n\n"
-        "Simplified version:"
-    )
-
-    raw = _hf_generate(prompt, max_new_tokens=256)
-    if not raw:
-        return None
-    return raw.strip()
-
-
-# =========================================================
-# Main patient answer generation
-# =========================================================
+# ========================================
+# ANSWER GENERATION + PERSONALIZATION + FOLLOW-UPS
+# ========================================
 
 def generate_patient_answer(
     question: str,
     context: Optional[Dict[str, Any]] = None,
-    conversation_history: Optional[List[Dict[str, Any]]] = None,
+    history: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
+    """
+    Main answer generator:
+      1) Emergency check
+      2) Knowledge base
+      3) Symptom classifier + follow-up questions
+      4) Add personalization from patient profile
+      5) Simplify language
+    """
     q = (question or "").strip()
     if len(q) < 3:
         return (
-            "Please ask a complete question about your symptoms, condition, or medication "
-            "so general guidance can be provided."
+            "Please describe your health question or concern in a bit more detail "
+            "so I can provide more useful guidance."
             + DISCLAIMER
         )
 
-    # 1) Emergency check
+    # 1) Emergency
     if is_emergency(q):
         return get_emergency_response(q)
 
-    # 2) Use rule-based KB
-    kb_response, kb_label = find_matching_response(q)
+    # 2) Knowledge base
+    kb_response = find_matching_response(q)
+
+    # 3) Symptom classifier + follow-ups
+    label = classify_text(q)
+    followups = get_followup_questions(label)
+
+    # Base text assembly
+    parts: List[str] = []
+
     if kb_response:
-        follow_ups = build_followup_text(kb_label)
-        personalized = personalize_answer(kb_response, kb_label, context)
-        return personalized + follow_ups + DISCLAIMER
-
-    # 3) Use small ML classifier to guess label and reuse KB if possible
-    predicted_label = classify_symptom(q)
-    if predicted_label:
-        if predicted_label in CONDITION_RESPONSES:
-            base = CONDITION_RESPONSES[predicted_label]
-        elif predicted_label in SYMPTOM_GUIDE:
-            base = SYMPTOM_GUIDE[predicted_label]
-        else:
-            base = None
-
-        if base:
-            follow_ups = build_followup_text(predicted_label)
-            personalized = personalize_answer(base, predicted_label, context)
-            return personalized + follow_ups + DISCLAIMER
-
-    # 4) Use HuggingFace model for general explanation (advanced reasoning)
-    hf_ans = generate_hf_answer(q, context=context)
-    if hf_ans:
-        return hf_ans
-
-    # 5) Final safe fallback
-    return (
-        "I am not able to give a specific answer about that topic. "
-        "Please discuss your question with a qualified healthcare professional."
-        + DISCLAIMER
-    )
-
-
-def personalize_answer(
-    base_text: str,
-    label: Optional[str],
-    context: Optional[Dict[str, Any]],
-) -> str:
-    """
-    Light personalization based on patient profile:
-    - known conditions
-    - medications
-    - allergies
-    """
-    if not context:
-        return base_text
-
-    extras: List[str] = []
-
-    conditions = [c.lower() for c in (context.get("conditions") or [])]
-    if label and label.lower() in conditions:
-        extras.append(
-            "Because this condition appears in your profile, it is especially important "
-            "to follow the care plan recommended by your own clinicians."
+        parts.append(kb_response)
+    else:
+        parts.append(
+            "I will share some general guidance based on what you described, "
+            "but this does not replace medical evaluation."
         )
 
-    meds = context.get("medications") or []
-    if meds:
-        extras.append(
-            "You have medications listed in your profile; always discuss any new or worsening "
-            "symptoms with the clinician who prescribed them, as medicines can interact "
-            "with health conditions."
+    if context:
+        personal_bits = []
+
+        conditions = context.get("conditions") or []
+        diagnoses = context.get("diagnoses") or []
+        all_conditions = list({*conditions, *diagnoses})  # merge if both present
+        if all_conditions:
+            personal_bits.append(
+                "Your profile lists these conditions: " + ", ".join(str(c) for c in all_conditions)
+            )
+
+        meds = context.get("medications") or []
+        if meds:
+            personal_bits.append(
+                "You also have medications on file, which your clinician should review "
+                "when making decisions."
+            )
+
+        allergies = context.get("allergies") or []
+        if allergies:
+            personal_bits.append(
+                "Your allergy information is important to share whenever you see a new provider."
+            )
+
+        if personal_bits:
+            parts.append("Based on your saved profile: " + " ".join(personal_bits))
+
+    if followups:
+        parts.append(
+            "To better understand your situation, here are some questions you may want to think about or discuss "
+            "with a healthcare provider:\n- " + "\n- ".join(followups)
         )
 
-    allergies = context.get("allergies") or []
-    if allergies:
-        extras.append(
-            "You also have allergies recorded in your profile, so remind healthcare staff about "
-            "these allergies before starting any new medication or procedure."
+    if not kb_response and not followups:
+        parts.append(
+            "I do not have a specific entry in my knowledge base for this concern, "
+            "so it is especially important to talk with a healthcare professional."
         )
 
-    if not extras:
-        return base_text
+    full_text = "\n\n".join(parts) + DISCLAIMER
 
-    return base_text + "\n\n" + " ".join(extras)
+    # Plain-language simplification
+    simplified = simplify_text(full_text, max_sentences=10)
+    return simplified
 
 
-# =========================================================
-# Trial search for chatbot
-# =========================================================
+# ========================================
+# TRIAL SEARCH FOR CHATBOT
+# ========================================
 
-def _extract_keywords_for_trials(question: str) -> str:
+def extract_keywords_for_trials(question: str) -> str:
     """
-    Build a simple query string for trial search from the question.
+    Very small helper to clean a question into a trial search query.
     """
-    q = (question or "").lower()
-    # Prefer known condition keys
-    for cond in CONDITION_RESPONSES.keys():
-        if cond in q:
-            return cond
-
-    tokens = [w for w in re.findall(r"[a-zA-Z]+", q) if len(w) > 3]
+    q_lower = (question or "").lower()
+    tokens = [w for w in re.findall(r"[a-zA-Z]+", q_lower) if len(w) > 3]
     if not tokens:
-        return q
-    return " ".join(tokens[:5])
+        return q_lower or "clinical trial"
+    return " ".join(tokens[:6])
 
 
 def find_trials_for_chatbot(question: str) -> List[Dict[str, Any]]:
     """
-    Use the same multi-source matching engine as the Search page, but
-    enrich the summaries with optional plain-language rewriting.
+    Uses the same multi-source matching engine as the Search page.
     """
-    query = _extract_keywords_for_trials(question)
-    if not query:
-        return []
-
+    query = extract_keywords_for_trials(question)
     trials = fetch_trials_with_fallbacks(query, desired_limit=5)
 
     results: List[Dict[str, Any]] = []
-
-    for idx, t in enumerate(trials):
-        summary = t.get("summary")
-        simplified = None
-
-        # Only rewrite for first 1–2 trials to limit HF API usage
-        if idx < 2 and summary:
-            simplified = simplify_medical_text(summary) or summary
-        else:
-            simplified = summary
-
+    for t in trials:
         results.append(
             {
                 "nct_id": t.get("nct_id"),
@@ -687,11 +416,11 @@ def find_trials_for_chatbot(question: str) -> List[Dict[str, Any]]:
                 "city": t.get("city"),
                 "state": t.get("state"),
                 "country": t.get("country"),
+                "google_maps_url": t.get("google_maps_url"),
                 "lat": t.get("lat"),
                 "lng": t.get("lng"),
+                "summary": t.get("summary"),
                 "url": t.get("url"),
-                "google_maps_url": t.get("google_maps_url"),
-                "summary": simplified,
                 "confidence_score": t.get("confidence_score"),
                 "explanation": t.get("explanation"),
                 "ai_generated": t.get("ai_generated", False),
@@ -701,19 +430,18 @@ def find_trials_for_chatbot(question: str) -> List[Dict[str, Any]]:
     return results
 
 
-# =========================================================
-# Session save/update
-# =========================================================
+# ========================================
+# SESSION SAVE/UPDATE
+# ========================================
 
 def save_or_update_session(
-    db,
+    db: Session,
     user_id: str,
     user_question: str,
     assistant_answer: str,
 ) -> AIChatSession:
     session = db.query(AIChatSession).filter_by(user_id=user_id).first()
     now_iso = datetime.utcnow().isoformat()
-
     user_msg = {"role": "user", "content": user_question, "ts": now_iso}
     ai_msg = {"role": "assistant", "content": assistant_answer, "ts": now_iso}
 
@@ -721,7 +449,7 @@ def save_or_update_session(
         msgs = list(session.messages or [])
         msgs.append(user_msg)
         msgs.append(ai_msg)
-        session.messages = msgs[-20:]
+        session.messages = msgs[-20:]  # keep last 20 messages
         session.last_interaction = datetime.utcnow()
         session.modified_at = datetime.utcnow()
     else:
