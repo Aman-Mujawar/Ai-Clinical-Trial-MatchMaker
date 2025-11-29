@@ -1,4 +1,5 @@
 # source/modules/matching/schemas.py
+
 from pydantic import BaseModel
 from typing import List, Optional
 
@@ -20,6 +21,8 @@ class TrialInfo(BaseModel):
     state: Optional[str] = None
     country: Optional[str] = None
     google_maps_url: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
     # Content / explanation
     summary: Optional[str] = None
@@ -35,7 +38,9 @@ class TrialMatchRequest(BaseModel):
     query_text: str
     filter_status: Optional[str] = None
     filter_location_contains: Optional[str] = None
-    sort_by: Optional[str] = "confidence"  # confidence | title | status
+    # The frontend still sends "confidence" | "title" | "status" | "distance"
+    # but "distance" is handled client-side; the backend treats it as confidence.
+    sort_by: Optional[str] = "confidence"
     limit: Optional[int] = 10
 
 

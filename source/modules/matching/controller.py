@@ -14,13 +14,13 @@ from .service import fetch_trials_with_fallbacks
 
 def _get_patient_profile_data(db: Session, user_id: str) -> Optional[Dict[str, Any]]:
     """
-    Optional patient-based context. You can extend this later for personalization.
+    Optional patient-based context. You can extend this later for personalization
+    (age, gender, conditions, location, etc.).
     """
     profile = db.query(PatientProfile).filter_by(user_id=uuid.UUID(user_id)).first()
     if not profile:
         return None
 
-    # Try to assemble some simple structured info
     conditions: List[str] = []
     if isinstance(profile.diagnoses, dict):
         conditions = list(profile.diagnoses.keys())
@@ -40,22 +40,25 @@ def create_trial_match_entry(
 ) -> TrialMatchResponse:
     """
     Main matching pipeline:
-      1) (Optionally) use patient profile for future personalization
-      2) Fetch trials from multiple external sources with fallbacks
-      3) Apply simple filters (status, location)
-      4) Sort
-      5) Save JSONB in trial_matches
+      1) Optionally read patient profile (future personalization hook)
+      2) Fetch trials from external sources with fallbacks
+      3) Apply simple filters (status, location substring)
+      4) Sort (confidence | title | status)
+      5) Store JSONB in trial_matches
       6) Return detailed trial objects with confidence & explanation
     """
-    # 1) (Optional) Patient profile context (not heavily used yet)
+    # 1) (Optional) Patient profile – currently unused, but available
     _ = _get_patient_profile_data(db, user_id=user_id)
 
     # 2) Fetch with fallbacks (guaranteed non-empty)
     desired_limit = request.limit or 10
-    all_trials = fetch_trials_with_fallbacks(request.query_text, desired_limit=desired_limit)
+    all_trials = fetch_trials_with_fallbacks(
+        request.query_text,
+        desired_limit=desired_limit,
+    )
 
     # 3) Apply filters (status, location substring)
-    filtered = []
+    filtered: List[Dict[str, Any]] = []
     for t in all_trials:
         ok = True
 
@@ -83,7 +86,9 @@ def create_trial_match_entry(
         filtered.sort(key=lambda x: (x.get("title") or "").lower())
     elif sort_by == "status":
         filtered.sort(key=lambda x: (x.get("status") or "").lower())
-    else:  # default: confidence
+    else:
+        # default: confidence (the frontend maps "distance" -> "confidence"
+        # and does distance sorting on the client using lat/lng)
         filtered.sort(key=lambda x: x.get("confidence_score", 0.0), reverse=True)
 
     # Truncate to requested limit

@@ -1,19 +1,16 @@
 # source/modules/matching/service.py
 
 import re
-import math
 from typing import Any, Dict, List, Optional
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup  # still installed; not strictly needed now
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 
-# -------------------------------
-# Helpers for Google Maps URL
-# -------------------------------
+
 
 def build_google_maps_url(location: Optional[str]) -> Optional[str]:
     if not location:
@@ -22,132 +19,145 @@ def build_google_maps_url(location: Optional[str]) -> Optional[str]:
     return f"https://www.google.com/maps/search/?api=1&query={q}"
 
 
-# -------------------------------
-# 1) ClinicalTrials.gov HTML scraper
-# -------------------------------
 
-def _parse_ctgov_study_page(nct_id: str) -> Optional[Dict[str, Any]]:
+
+CTGOV_BASE_URL = "https://clinicaltrials.gov/api/v2/studies"
+
+
+def _extract_ctgov_location(protocol_section: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Parse a single ClinicalTrials.gov study page using HTML.
-    We do not use their API (which may be down); we only parse HTML,
-    which is usually allowed for public information.
+    Pull a single representative location (city/state/country)
+    from contactsLocationsModule if available.
     """
-    try:
-        url = f"https://clinicaltrials.gov/study/{nct_id}"
-        resp = requests.get(url, timeout=10)
-        if resp.status_code != 200:
-            return None
+    contacts = protocol_section.get("contactsLocationsModule", {}) or {}
+    locations = contacts.get("locations") or []
 
-        soup = BeautifulSoup(resp.text, "lxml")
+    city = state = country = location_text = None
+    lat = lng = None  # CT.gov API v2 does not currently expose geo coords
 
-        title_el = soup.find("h1")
-        title = title_el.get_text(strip=True) if title_el else None
+    if locations:
+        loc0 = locations[0] or {}
+        city = loc0.get("city")
+        state = loc0.get("state")
+        country = loc0.get("country")
 
-        # Very approximate parsing – this can be refined later
-        summary_el = soup.find("div", {"data-module": "study-description"})
-        summary = summary_el.get_text(" ", strip=True) if summary_el else None
+        parts = [p for p in [city, state, country] if p]
+        location_text = ", ".join(parts) if parts else None
 
-        status_el = soup.find(string=re.compile("Overall Status", re.I))
-        status = None
-        if status_el and status_el.parent and status_el.parent.find_next("span"):
-            status = status_el.parent.find_next("span").get_text(strip=True)
-
-        phase_el = soup.find(string=re.compile("Phase", re.I))
-        phase = None
-        if phase_el and phase_el.parent and phase_el.parent.find_next("span"):
-            phase = phase_el.parent.find_next("span").get_text(strip=True)
-
-        sponsor_el = soup.find(string=re.compile("Sponsor", re.I))
-        sponsor = None
-        if sponsor_el and sponsor_el.parent and sponsor_el.parent.find_next("span"):
-            sponsor = sponsor_el.parent.find_next("span").get_text(strip=True)
-
-        # Location block – again approximate
-        location_block = soup.find(string=re.compile("Location", re.I))
-        location_text = None
-        if location_block:
-            # try to get next container
-            container = location_block.parent.find_next("div")
-            if container:
-                location_text = container.get_text(" ", strip=True)
-
-        location = location_text
-        google_maps_url = build_google_maps_url(location)
-
-        return {
-            "nct_id": nct_id,
-            "title": title,
-            "summary": summary,
-            "status": status,
-            "phase": phase,
-            "sponsor": sponsor,
-            "location": location,
-            "city": None,
-            "state": None,
-            "country": None,
-            "url": url,
-            "google_maps_url": google_maps_url,
-        }
-    except Exception:
-        return None
+    return {
+        "city": city,
+        "state": state,
+        "country": country,
+        "location": location_text,
+        "lat": lat,
+        "lng": lng,
+    }
 
 
-def fetch_trials_from_ctgov_html(
+def fetch_trials_from_ctgov_api(
     query: str,
     limit: int = 5
 ) -> List[Dict[str, Any]]:
     """
-    Lightweight HTML-based search using ClinicalTrials.gov.
-    We approximate: search via generic query page and parse NCT IDs.
+    Use ClinicalTrials.gov API v2 as the main clinical-trial source.
+
+    We query by general term (query.term) so it works for conditions,
+    interventions, etc. We keep it simple and only pull one page.
     """
-    results: List[Dict[str, Any]] = []
+    trials: List[Dict[str, Any]] = []
 
     try:
-        search_url = f"https://clinicaltrials.gov/search?cond={query.replace(' ', '+')}"
-        resp = requests.get(search_url, timeout=10)
+        params = {
+            "format": "json",
+            "pageSize": limit,
+            "query.term": query,
+        }
+        resp = requests.get(CTGOV_BASE_URL, params=params, timeout=10)
         if resp.status_code != 200:
-            return results
+            return trials
 
-        soup = BeautifulSoup(resp.text, "lxml")
-        # Find all links to /study/NCT...
-        links = soup.find_all("a", href=re.compile(r"/study/NCT\d+"))
-        seen_ids = set()
+        data = resp.json()
+        studies = data.get("studies", []) or []
 
-        for a in links:
-            href = a.get("href", "")
-            m = re.search(r"NCT\d+", href)
-            if not m:
-                continue
-            nct_id = m.group(0)
-            if nct_id in seen_ids:
-                continue
-            seen_ids.add(nct_id)
+        for study in studies:
+            protocol = study.get("protocolSection", {}) or {}
 
-            study = _parse_ctgov_study_page(nct_id)
-            if study:
-                results.append(study)
+            ident = protocol.get("identificationModule", {}) or {}
+            desc = protocol.get("descriptionModule", {}) or {}
+            status_mod = protocol.get("statusModule", {}) or {}
+            cond_mod = protocol.get("conditionsModule", {}) or {}
+            design_mod = protocol.get("designModule", {}) or {}
+            sponsor_mod = protocol.get("sponsorCollaboratorsModule", {}) or {}
 
-            if len(results) >= limit:
+            nct_id = ident.get("nctId")
+            title = (
+                ident.get("officialTitle")
+                or ident.get("briefTitle")
+                or "Untitled clinical trial"
+            )
+
+            summary = (
+                desc.get("briefSummary")
+                or desc.get("detailedDescription")
+                or ""
+            )
+
+            status = status_mod.get("overallStatus")
+            phases = design_mod.get("phases") or []
+            if isinstance(phases, list):
+                phase = ", ".join(phases) if phases else None
+            else:
+                phase = phases
+
+            conditions = cond_mod.get("conditions") or []
+
+            lead_sponsor = sponsor_mod.get("leadSponsor") or {}
+            sponsor = lead_sponsor.get("name")
+
+            loc_info = _extract_ctgov_location(protocol)
+
+            url = f"https://clinicaltrials.gov/study/{nct_id}" if nct_id else None
+            google_maps_url = build_google_maps_url(loc_info["location"])
+
+            trials.append(
+                {
+                    "nct_id": nct_id,
+                    "title": title,
+                    "summary": summary,
+                    "status": status,
+                    "phase": phase,
+                    "conditions": conditions,
+                    "sponsor": sponsor,
+                    "location": loc_info["location"],
+                    "city": loc_info["city"],
+                    "state": loc_info["state"],
+                    "country": loc_info["country"],
+                    "lat": loc_info["lat"],
+                    "lng": loc_info["lng"],
+                    "url": url,
+                    "google_maps_url": google_maps_url,
+                    "ai_generated": False,
+                }
+            )
+
+            if len(trials) >= limit:
                 break
 
     except Exception:
-        # swallow error; higher layers will handle fallback
-        return results
+        # We fail silently here; caller will use fallbacks.
+        return trials
 
-    return results
+    return trials
 
 
-# -------------------------------
-# 2) Semantic Scholar API fallback
-# -------------------------------
 
 def fetch_trials_from_semantic_scholar(
     query: str,
     limit: int = 5
 ) -> List[Dict[str, Any]]:
     """
-    Use Semantic Scholar as a research trial-like fallback.
-    We treat each paper as a 'trial' object.
+    Use Semantic Scholar as a research-paper fallback. We map papers
+    into the same 'trial-like' structure used by the rest of the system.
     """
     results: List[Dict[str, Any]] = []
     try:
@@ -155,7 +165,7 @@ def fetch_trials_from_semantic_scholar(
         params = {
             "query": query,
             "limit": limit,
-            "fields": "title,abstract,url,venue,year"
+            "fields": "title,abstract,url,venue,year",
         }
         resp = requests.get(url, params=params, timeout=10)
         if resp.status_code != 200:
@@ -170,20 +180,27 @@ def fetch_trials_from_semantic_scholar(
             year = paper.get("year")
 
             summary = abstract or f"Research paper in {venue} ({year}) related to {query}."
-            results.append({
-                "nct_id": None,
-                "title": title,
-                "summary": summary,
-                "status": "NOT_AVAILABLE",
-                "phase": None,
-                "sponsor": venue,
-                "location": None,
-                "city": None,
-                "state": None,
-                "country": None,
-                "url": url_paper,
-                "google_maps_url": None,
-            })
+
+            results.append(
+                {
+                    "nct_id": None,
+                    "title": title,
+                    "summary": summary,
+                    "status": "NOT_AVAILABLE",
+                    "phase": None,
+                    "sponsor": venue,
+                    "conditions": None,
+                    "location": None,
+                    "city": None,
+                    "state": None,
+                    "country": None,
+                    "lat": None,
+                    "lng": None,
+                    "url": url_paper,
+                    "google_maps_url": None,
+                    "ai_generated": False,
+                }
+            )
 
             if len(results) >= limit:
                 break
@@ -194,9 +211,7 @@ def fetch_trials_from_semantic_scholar(
     return results
 
 
-# -------------------------------
-# 3) Local fallback dataset – NEVER EMPTY
-# -------------------------------
+
 
 LOCAL_FALLBACK_TRIALS: List[Dict[str, Any]] = [
     {
@@ -211,6 +226,8 @@ LOCAL_FALLBACK_TRIALS: List[Dict[str, Any]] = [
         "city": "Charlotte",
         "state": "NC",
         "country": "USA",
+        "lat": 35.2271,
+        "lng": -80.8431,
         "url": "https://example.org/trials/local001",
     },
     {
@@ -225,6 +242,8 @@ LOCAL_FALLBACK_TRIALS: List[Dict[str, Any]] = [
         "city": "Raleigh",
         "state": "NC",
         "country": "USA",
+        "lat": 35.7796,
+        "lng": -78.6382,
         "url": "https://example.org/trials/local002",
     },
     {
@@ -239,6 +258,8 @@ LOCAL_FALLBACK_TRIALS: List[Dict[str, Any]] = [
         "city": "Atlanta",
         "state": "GA",
         "country": "USA",
+        "lat": 33.7490,
+        "lng": -84.3880,
         "url": "https://example.org/trials/local003",
     },
 ]
@@ -249,15 +270,13 @@ def get_local_fallback_trials(limit: int = 5) -> List[Dict[str, Any]]:
     for t in LOCAL_FALLBACK_TRIALS:
         item = t.copy()
         item["google_maps_url"] = build_google_maps_url(item.get("location"))
+        # ai_generated is set later when we actually use them as fallback
         trials.append(item)
         if len(trials) >= limit:
             break
     return trials
 
 
-# -------------------------------
-# Confidence scoring & explanation
-# -------------------------------
 
 def compute_confidence_scores(
     query: str,
@@ -266,11 +285,14 @@ def compute_confidence_scores(
     """
     Use TF-IDF cosine similarity between query and trial text (title + summary).
     Adds 'confidence_score' and 'explanation' to each trial dict.
+
+    This supports user story 5 & 6 (ranked matches with confidence +
+    explanation in plain-ish English).
     """
     if not trials:
         return []
 
-    corpus = []
+    corpus: List[str] = []
     for t in trials:
         text_parts = [
             t.get("title") or "",
@@ -293,13 +315,14 @@ def compute_confidence_scores(
     for trial, score in zip(trials, sims):
         confidence = float(round(score, 4))
 
-        # short explanation string
         title = trial.get("title") or "this trial"
         loc = trial.get("location") or "various locations"
+
         explanation = (
-            f"This trial, '{title}', appears relevant to your query '{query}'. "
-            f"It is located at {loc}. The match confidence score is {int(confidence * 100)}%, "
-            f"based on similarity between your search and the trial details."
+            f"This match, '{title}', appears relevant to your search '{query}'. "
+            f"It is located at {loc}. The match confidence score is "
+            f"{int(confidence * 100)}%, based on similarity between your search "
+            f"and the trial details (title, summary, and conditions)."
         )
 
         trial["confidence_score"] = confidence
@@ -309,26 +332,22 @@ def compute_confidence_scores(
     return results
 
 
-# -------------------------------
-# Main orchestrator with fallbacks
-# -------------------------------
-
 def fetch_trials_with_fallbacks(
     query: str,
     desired_limit: int = 10
 ) -> List[Dict[str, Any]]:
     """
-    Try multiple sources in order:
-      1) ClinicalTrials.gov HTML
-      2) Semantic Scholar
-      3) Local fallback dataset
+    Hybrid A + C:
+      1) ClinicalTrials.gov API v2 (real trials with locations)
+      2) Semantic Scholar (research papers as "trials")
+      3) Local fallback trials (never empty)
 
-    Always returns at least one trial (unless something is catastrophically wrong).
+    Always returns at least one trial unless something catastrophic happens.
     """
     collected: List[Dict[str, Any]] = []
 
-    # 1) CT.gov HTML
-    ctgov_trials = fetch_trials_from_ctgov_html(query, limit=desired_limit)
+    # 1) ClinicalTrials.gov API
+    ctgov_trials = fetch_trials_from_ctgov_api(query, limit=desired_limit)
     collected.extend(ctgov_trials)
 
     # 2) Semantic Scholar (only if we still need more)
@@ -339,10 +358,9 @@ def fetch_trials_with_fallbacks(
 
     # 3) Local fallback (if still not enough)
     if len(collected) == 0:
-        # if absolutely nothing from externals, get full fallback
         collected = get_local_fallback_trials(limit=desired_limit)
         for t in collected:
-            t["ai_generated"] = True  # mark we used synthetic fallback
+            t["ai_generated"] = True  # fully synthetic fallback
     elif len(collected) < desired_limit:
         remaining = desired_limit - len(collected)
         extra = get_local_fallback_trials(limit=remaining)
@@ -350,9 +368,9 @@ def fetch_trials_with_fallbacks(
             t["ai_generated"] = True
         collected.extend(extra)
 
-    # Clean up: ensure google_maps_url is present where location exists
+    # Ensure google_maps_url is present where we have a location
     for t in collected:
-        if not t.get("google_maps_url"):
+        if not t.get("google_maps_url") and t.get("location"):
             t["google_maps_url"] = build_google_maps_url(t.get("location"))
 
     # Compute confidence & explanation
