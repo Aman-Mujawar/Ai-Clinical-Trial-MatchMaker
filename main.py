@@ -11,41 +11,32 @@ from source.modules.PatientProfile.router import router as patient_router
 from source.modules.symptoms.router import router as symptom_router
 from source.modules.matching.router import router as matching_router
 from source.modules.chatbot.router import router as chatbot_router
-from source.modules.getprofile.router import router as getprofile_router  # ✅ NEW IMPORT
+from source.modules.getprofile.router import router as getprofile_router
 
 # Database config
 from source.database.config import db_config
 
-# -------------------------
 # Logging
-# -------------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("clinical-trial-backend")
 
-# -------------------------
-# FastAPI app
-# -------------------------
 app = FastAPI(
     title="Clinical Trial Matchmaker API",
     description="AI-powered API to match patients with suitable clinical trials.",
     version="1.0.0"
 )
 
-# -------------------------
-# CORS middleware
-# -------------------------
+# CORS configuration
 origins = os.getenv("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["*"],   # Allows PATCH, POST, GET, OPTIONS, DELETE, etc.
     allow_headers=["*"],
 )
 
-# -------------------------
-# Include routers
-# -------------------------
+# Routers
 app.include_router(user_router)
 app.include_router(patient_router)
 app.include_router(symptom_router)
@@ -53,9 +44,7 @@ app.include_router(matching_router)
 app.include_router(chatbot_router)
 app.include_router(getprofile_router)
 
-# -------------------------
-# Custom OpenAPI with JWT Bearer
-# -------------------------
+# Custom OpenAPI with JWT authorization
 def custom_openapi():
     if app.openapi_schema:
         return app.openapi_schema
@@ -74,30 +63,26 @@ def custom_openapi():
         "bearerFormat": "JWT",
         "description": "Enter your JWT token (without the 'Bearer ' prefix')"
     }
-    openapi_schema.setdefault("security", [{"BearerAuth": []}])
 
+    openapi_schema.setdefault("security", [{"BearerAuth": []}])
     app.openapi_schema = openapi_schema
     return app.openapi_schema
 
 app.openapi = custom_openapi
 
-# -------------------------
 # Startup event
-# -------------------------
 @app.on_event("startup")
 def on_startup():
     logger.info("Starting Clinical Trial Matchmaker API")
     if db_config.APP_DB_URL:
         logger.info("APP_DB_URL loaded successfully")
     else:
-        logger.warning("APP_DB_URL not set! Set it in Render Dashboard or local .env")
+        logger.warning("APP_DB_URL not set. Configure it in the Render dashboard or local .env")
     logger.info(f"CORS_ORIGINS: {origins}")
 
-# -------------------------
-# Root & health endpoints (Render requires this)
-# -------------------------
+# Render health checks
 @app.get("/", include_in_schema=False)
-@app.head("/", include_in_schema=False)  # 🔥 REQUIRED FOR RENDER HEALTH CHECK
+@app.head("/", include_in_schema=False)
 def root_health():
     return {"status": "ok"}
 
@@ -105,14 +90,12 @@ def root_health():
 def health_check():
     return {"database_url_set": bool(db_config.APP_DB_URL)}
 
-# -------------------------
-# Main
-# -------------------------
+# Main server entry
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=int(os.environ.get("PORT", 8000)),
-        reload=False,     # ❗ MUST BE FALSE FOR RENDER
-        workers=1         # ❗ REQUIRED ON FREE TIER
+        reload=False,
+        workers=1
     )
